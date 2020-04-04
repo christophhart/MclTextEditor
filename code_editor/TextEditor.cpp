@@ -20,8 +20,8 @@ using namespace juce;
 #define TEXT_INDENT 4.f
 #define TEST_MULTI_CARET_EDITING true
 #define TEST_SYNTAX_SUPPORT true
-#define ENABLE_CARET_BLINK false
-#define PROFILE_PAINTS false
+
+#define PROFILE_PAINTS true
 static bool DEBUG_TOKENS = false;
 
 
@@ -1327,6 +1327,21 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 
 void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& d)
 {
+	float dx = d.deltaX;
+
+	if (e.mods.isCommandDown())
+	{
+		auto factor = 1.0f + (float)d.deltaY / 200.0f;
+
+		scaleView(factor, e.position.y);
+
+	}
+
+#if JUCE_WINDOWS
+
+	translateView(dx * 80, d.deltaY * 160);
+
+#else
     float dx = d.deltaX;
     /*
      make scrolling away from the gutter just a little "sticky"
@@ -1336,6 +1351,7 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
         dx = 0.f;
     }
     translateView (dx * 400, d.deltaY * 800);
+#endif
 }
 
 void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
