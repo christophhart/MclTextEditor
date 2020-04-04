@@ -289,6 +289,7 @@ public:
         character,
         subword,
         word,
+		firstnonwhitespace,
         token,
         line,
         paragraph,

@@ -856,6 +856,23 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
         case Target::whitespace : while (! CF::isWhitespace (get (i)) && advance (i)) { } break;
         case Target::punctuation: while (! punctuation.containsChar (get (i)) && advance (i)) { } break;
         case Target::character  : advance (i); break;
+		case Target::firstnonwhitespace:
+		{
+			jassert(direction == Direction::backwardCol);
+
+			bool skipTofirstNonWhiteCharacter = false;
+
+			while (get(i) != '\n' && prev(i)) 
+				skipTofirstNonWhiteCharacter |= !CF::isWhitespace(get(i));
+
+			while (skipTofirstNonWhiteCharacter && CF::isWhitespace(get(i)))
+				next(i);
+
+			if (skipTofirstNonWhiteCharacter)
+				prev(i);
+
+			break;
+		}
         case Target::subword    : jassertfalse; break; // IMPLEMENT ME
         case Target::word       : while (CF::isWhitespace (get (i)) && advance (i)) { } break;
         case Target::token:
@@ -1371,7 +1388,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     // =======================================================================================
     auto nav = [this, mods] (Target target, Direction direction)
     {
-        if (mods.isShiftDown())
+		if (mods.isShiftDown())
             document.navigateSelections (target, direction, Selection::Part::head);
         else
             document.navigateSelections (target, direction, Selection::Part::both);
@@ -1387,13 +1404,16 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     };
-    auto expand = [this] (Target target)
+
+    auto expand = [this, nav] (Target target)
     {
-        document.navigateSelections (target, Direction::backwardCol, Selection::Part::head);
-        document.navigateSelections (target, Direction::forwardCol,  Selection::Part::tail);
-        updateSelections();
+		document.navigateSelections(target, Direction::backwardCol, Selection::Part::tail);
+		document.navigateSelections(target, Direction::forwardCol, Selection::Part::head);
+		//translateToEnsureCaretIsVisible();
+		updateSelections();
         return true;
     };
+
     auto addCaret = [this] (Target target, Direction direction)
     {
         auto s = document.getSelections().getLast();
@@ -1423,6 +1443,11 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     };
 
+	auto remove = [this, expandBack](Target target, Direction direction)
+	{
+		expandBack(target, direction) && insert({});
+		return true;
+	};
 
     // =======================================================================================
     if (key.isKeyCode (KeyPress::escapeKey))
@@ -1451,9 +1476,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
             key == KeyPress ('e', ModifierKeys::ctrlModifier | ModifierKeys::shiftModifier, 0))
             return nav (Target::line, Direction::forwardCol);
 
-        if (key == KeyPress ('a', ModifierKeys::ctrlModifier, 0) ||
-            key == KeyPress ('a', ModifierKeys::ctrlModifier | ModifierKeys::shiftModifier, 0))
-            return nav (Target::line, Direction::backwardCol);
+
     }
     if (mods.isCommandDown())
     {
@@ -1465,6 +1488,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     if (key.isKeyCode (KeyPress::leftKey )) return nav (Target::character, Direction::backwardCol);
     if (key.isKeyCode (KeyPress::downKey )) return nav (Target::character, Direction::forwardRow);
     if (key.isKeyCode (KeyPress::upKey   )) return nav (Target::character, Direction::backwardRow);
+
+	if (key.isKeyCode(KeyPress::backspaceKey)) return remove(Target::character, Direction::backwardCol);
+	if (key.isKeyCode(KeyPress::deleteKey))	   return remove(Target::character, Direction::forwardCol);
+
+	if (key.isKeyCode(KeyPress::homeKey)) return nav(Target::firstnonwhitespace, Direction::backwardCol);
+	if (key.isKeyCode(KeyPress::endKey))  return nav(Target::line, Direction::forwardCol);
 
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
     if (key == KeyPress ('d', ModifierKeys::commandModifier, 0)) return expand (Target::whitespace);
