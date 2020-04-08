@@ -15,9 +15,8 @@ using namespace juce;
 
 
 
-#define GUTTER_WIDTH 48.f
-#define CURSOR_WIDTH 3.f
-#define TEXT_INDENT 4.f
+#define CURSOR_WIDTH 1.5f
+#define TEXT_INDENT 6.f
 #define TEST_MULTI_CARET_EDITING true
 #define TEST_SYNTAX_SUPPORT true
 
@@ -31,9 +30,7 @@ static bool DEBUG_TOKENS = false;
 mcl::CaretComponent::CaretComponent (const TextDocument& document) : document (document)
 {
     setInterceptsMouseClicks (false, false);
-#if ENABLE_CARET_BLINK
     startTimerHz (20);
-#endif
 }
 
 void mcl::CaretComponent::setViewTransform (const AffineTransform& transformToUse)
@@ -54,10 +51,28 @@ void mcl::CaretComponent::paint (Graphics& g)
     auto start = Time::getMillisecondCounterHiRes();
 #endif
 
-    g.setColour (getParentComponent()->findColour (juce::CaretComponent::caretColourId).withAlpha (squareWave (phase)));
+	auto colour = getParentComponent()->findColour(juce::CaretComponent::caretColourId);
+	auto outline = colour.contrasting();
 
-    for (const auto &r : getCaretRectangles())
-        g.fillRect (r);
+	UnblurryGraphics ug(g, *this);
+
+	bool drawCaretLine = document.getNumSelections() == 1 && document.getSelections().getFirst().isSingular();
+
+	for (const auto &r : getCaretRectangles())
+	{
+		g.setColour(colour.withAlpha(squareWave(phase)));
+
+		auto rf = ug.getRectangleWithFixedPixelWidth(r, 2);
+		g.fillRect(rf);
+
+		
+
+		if (drawCaretLine)
+		{
+			g.setColour(Colours::white.withAlpha(0.08f));
+			g.fillRect(r.withX(0.0f).withWidth(getWidth()));
+		}
+	}
 
 #if PROFILE_PAINTS
     std::cout << "[CaretComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
@@ -85,10 +100,13 @@ Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 
     for (const auto& selection : document.getSelections())
     {
-        rectangles.add (document
-                        .getGlyphBounds (selection.head)
-                        .removeFromLeft (CURSOR_WIDTH)
-                        .translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
+		auto b = document.getGlyphBounds(selection.head, GlyphArrangementArray::ReturnBeyondLastCharacter);
+
+		b = b.removeFromLeft(CURSOR_WIDTH).withSizeKeepingCentre(CURSOR_WIDTH, document.getRowHeight());
+
+		
+
+        rectangles.add (b.translated (selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
                         .transformedBy (transform)
                         .expanded (0.f, 1.f));
     }
@@ -130,6 +148,8 @@ void mcl::GutterComponent::paint (Graphics& g)
     auto bg = getParentComponent()->findColour (CodeEditorComponent::backgroundColourId);
     auto ln = bg.overlaidWith (getParentComponent()->findColour (CodeEditorComponent::lineNumberBackgroundId));
 
+	auto GUTTER_WIDTH = getGutterWidth();
+
     g.setColour (ln);
     g.fillRect (getLocalBounds().removeFromLeft (GUTTER_WIDTH));
 
@@ -162,12 +182,15 @@ void mcl::GutterComponent::paint (Graphics& g)
     {
         if (r.isRowSelected)
         {
-            auto A = r.bounds
+			g.setColour(ln.contrasting(0.1f));
+            auto A = r.bounds.getRectangle(0)
                 .transformedBy (transform)
                 .withX (0)
                 .withWidth (GUTTER_WIDTH);
 
             g.fillRect (A);
+
+			
         }
     }
 
@@ -175,7 +198,26 @@ void mcl::GutterComponent::paint (Graphics& g)
 
     for (const auto& r : rowData)
     {
-        memoizedGlyphArrangements (r.rowNumber).draw(g, verticalTransform);
+		auto A = r.bounds.getRectangle(0)
+			.transformedBy(transform)
+			.withX(0)
+			.withWidth(GUTTER_WIDTH);
+
+		auto f = document.getFont();
+		
+		auto gap = (document.getRowHeight() - f.getHeight() * 0.8f) / 2.0f * transform.getScaleFactor();
+
+		f.setHeight(f.getHeight() * transform.getScaleFactor() * 0.8f);
+		g.setFont(f);
+
+		
+		
+
+		
+
+		g.drawText(String(r.rowNumber+1), A.reduced(5.0f, gap), Justification::topRight, false);
+
+        //memoizedGlyphArrangements (r.rowNumber).draw(g, verticalTransform);
     }
 
 #if PROFILE_PAINTS
@@ -210,7 +252,7 @@ void mcl::HighlightComponent::setViewTransform (const AffineTransform& transform
     
     for (const auto& s : document.getSelections())
     {
-        outlinePath.addPath (getOutlinePath (document.getSelectionRegion (s, clip)));
+        outlinePath.addPath (getOutlinePath (s, clip));
     }
     repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
@@ -222,7 +264,7 @@ void mcl::HighlightComponent::updateSelections()
 
     for (const auto& s : document.getSelections())
     {
-        outlinePath.addPath (getOutlinePath (document.getSelectionRegion (s, clip)));
+        outlinePath.addPath (getOutlinePath (s.oriented(), clip));
     }
     repaint (outlinePath.getBounds().getSmallestIntegerContainer());
 }
@@ -233,45 +275,186 @@ void mcl::HighlightComponent::paint (Graphics& g)
     auto start = Time::getMillisecondCounterHiRes();
 #endif
 
+
     g.addTransform (transform);
     auto highlight = getParentComponent()->findColour (CodeEditorComponent::highlightColourId);
 
+	g.setColour(Colours::red.withAlpha(0.1f));
+	g.fillRectList(outlineRects);
+
+	g.setColour(Colours::white.withAlpha(0.4f));
+	g.strokePath(outlinePath, PathStrokeType(1.f));
+
     g.setColour (highlight);
+
+	
+
+#if 0
+
+	UnblurryGraphics ug(g, *this);
+	for (auto& r : outlineRects)
+	{
+		ug.fillUnblurryRect(r);
+	}
+#endif
+
+	
+
     g.fillPath (outlinePath);
 
-    g.setColour (highlight.darker());
-    g.strokePath (outlinePath, PathStrokeType (1.f));
+    
 
 #if PROFILE_PAINTS
     std::cout << "[HighlightComponent::paint] " << Time::getMillisecondCounterHiRes() - start << std::endl;
 #endif
 }
 
-Path mcl::HighlightComponent::getOutlinePath (const Array<Rectangle<float>>& rectangles)
+Path mcl::HighlightComponent::getOutlinePath (const Selection& s, Rectangle<float> clip) const
 {
-    auto p = Path();
-    auto rect = rectangles.begin();
+	RectangleList<float> list;
 
-    if (rect == rectangles.end())
-        return p;
+	auto top = document.getUnderlines(s, TextDocument::Metric::top);
+	auto bottom = document.getUnderlines(s, TextDocument::Metric::baseline);
 
-    p.startNewSubPath (rect->getTopLeft());
-    p.lineTo (rect->getBottomLeft());
+	Path p;
 
-    while (++rect != rectangles.end())
-    {
-        p.lineTo (rect->getTopLeft());
-        p.lineTo (rect->getBottomLeft());
-    }
+	if (top.isEmpty())
+		return p;
 
-    while (rect-- != rectangles.begin())
-    {
-        p.lineTo (rect->getBottomRight());
-        p.lineTo (rect->getTopRight());
-    }
+	
 
-    p.closeSubPath();
-    return p.createPathWithRoundedCorners (4.f);
+	
+	float currentPos = 0.0f;
+
+	auto pushed = [&currentPos](Point<float> p, bool down)
+	{
+		if (down)
+			p.y = jmax(currentPos, p.y);
+		else
+			p.y = jmin(currentPos, p.y);
+
+		currentPos = p.y;
+
+		return p;
+	};
+
+	p.startNewSubPath(pushed(top.getFirst().getEnd(), true));
+	p.lineTo(pushed(bottom.getFirst().getEnd(), true));
+
+	
+
+	for (int i = 1; i < top.size(); i++)
+	{
+		p.lineTo(pushed(top[i].getEnd(), true));
+		auto b = pushed(bottom[i].getEnd(), true);
+		p.lineTo(b);
+	}
+
+	for (int i = top.size() - 1; i >= 0; i--)
+	{
+		p.lineTo(pushed(bottom[i].getStart(), false));
+		p.lineTo(pushed(top[i].getStart(), false));
+	}
+
+	p.closeSubPath();
+
+	return p.createPathWithRoundedCorners(2.0f);
+
+	
+	
+
+
+
+
+#if 0
+	Array<Rectangle<float>> list;
+
+	for (auto& r : rectangles)
+	{
+		if (r.intersects(clip))
+			list.add(r);
+	}
+
+	struct Sorter
+	{
+		static int compareElements(const Rectangle<float>& first, const Rectangle<float>& second)
+		{
+			if (first.getY() > second.getY())
+				return 1;
+			if (first.getY() < second.getY())
+				return -1;
+			
+			if (first.getX() > second.getX())
+				return 1;
+			if (first.getX() < second.getX())
+				return -1;
+
+			return 0;
+		}
+	};
+
+	Sorter s;
+	list.sort(s);
+	
+	Array<Point<float>> leftBounds, rightBounds;
+
+	
+	float lastPos = 0.0f;
+
+	for (auto& r : list)
+	{
+		auto thisPos = r.getY();
+
+		//jassert(thisPos != lastPos);
+
+		auto newPoint = r.getTopRight();
+
+		if(!rightBounds.isEmpty())
+			newPoint.setY(jmax(newPoint.getY(), rightBounds.getLast().getY()));
+
+		rightBounds.add(newPoint);
+
+		newPoint = r.getBottomRight();
+		newPoint.setY(jmax<float>(newPoint.getY(), rightBounds.getLast().getY()));
+		rightBounds.add(newPoint);
+
+		lastPos = thisPos;
+	}
+
+	for (int i = list.size() - 1; i >= 0; i--)
+	{
+		auto r = list[i];
+
+		auto newPoint = r.getBottomLeft();
+		
+		if(!leftBounds.isEmpty())
+			newPoint.setY(jmin(newPoint.getY(), leftBounds.getLast().getY()));
+
+		leftBounds.add(newPoint);
+
+		newPoint = r.getTopLeft();
+		newPoint.setY(jmin(newPoint.getY(), leftBounds.getLast().getY()));
+		leftBounds.add(newPoint);
+	}
+	
+	Path p;
+
+	p.startNewSubPath(rightBounds.getFirst());
+
+	for (int i = 1; i < rightBounds.size(); i++)
+	{
+		p.lineTo(rightBounds[i]);
+	}
+
+	for (int i = 0; i < leftBounds.size(); i++)
+	{
+		p.lineTo(leftBounds[i]);
+	}
+
+	p.closeSubPath();
+
+	return p.createPathWithRoundedCorners(2.0f);
+#endif
 }
 
 
@@ -443,13 +626,33 @@ void mcl::Selection::push (Point<int>& index) const
 
 
 
+struct ActionHelpers
+{
+	static bool isLeftClosure(juce_wchar c)
+	{
+		return String("\"({[").containsChar(c);
+	};
+
+	static bool  isRightClosure(juce_wchar c)
+	{
+		return String("\")}]").containsChar(c);
+	};
+
+	static bool  isMatchingClosure(juce_wchar l, juce_wchar r)
+	{
+		return l == '"' && r == '"' ||
+			l == '[' && r == ']' ||
+			l == '(' && r == ')' ||
+			l == '{' && r == '}';
+	};
+};
 
 //==============================================================================
 const String& mcl::GlyphArrangementArray::operator[] (int index) const
 {
     if (isPositiveAndBelow (index, lines.size()))
     {
-        return lines.getReference (index).string;
+        return lines[index]->string;
     }
 
     static String empty;
@@ -462,7 +665,7 @@ int mcl::GlyphArrangementArray::getToken (int row, int col, int defaultIfOutOfBo
     {
         return defaultIfOutOfBounds;
     }
-    return lines.getReference (row).tokens[col];
+    return lines[row]->tokens[col];
 }
 
 void mcl::GlyphArrangementArray::clearTokens (int index)
@@ -470,13 +673,13 @@ void mcl::GlyphArrangementArray::clearTokens (int index)
     if (! isPositiveAndBelow (index, lines.size()))
         return;
 
-    auto& entry = lines.getReference (index);
+    auto entry = lines[index];
 
     ensureValid (index);
 
-    for (int col = 0; col < entry.tokens.size(); ++col)
+    for (int col = 0; col < entry->tokens.size(); ++col)
     {
-        entry.tokens.setUnchecked (col, 0);
+        entry->tokens.setUnchecked (col, 0);
     }
 }
 
@@ -485,15 +688,17 @@ void mcl::GlyphArrangementArray::applyTokens (int index, Selection zone)
     if (! isPositiveAndBelow (index, lines.size()))
         return;
 
-    auto& entry = lines.getReference (index);
-    auto range = zone.getColumnRangeOnRow (index, entry.tokens.size());
+	auto entry = lines[index];
+    auto range = zone.getColumnRangeOnRow (index, entry->tokens.size());
 
     ensureValid (index);
 
     for (int col = range.getStart(); col < range.getEnd(); ++col)
     {
-        entry.tokens.setUnchecked (col, zone.token);
+        entry->tokens.setUnchecked (col, zone.token);
     }
+
+	entry->tokensAreDirty = false;
 }
 
 GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
@@ -513,16 +718,18 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
     }
     ensureValid (index);
 
-    auto& entry = lines.getReference (index);
-    auto glyphSource = withTrailingSpace ? entry.glyphsWithTrailingSpace : entry.glyphs;
+	auto entry = lines[index];
+    auto glyphSource = withTrailingSpace ? entry->glyphsWithTrailingSpace : entry->glyphs;
     auto glyphs = GlyphArrangement();
+
+	
 
     if (DEBUG_TOKENS)
     {
         String line;
         String hex ("0123456789abcdefg");
 
-        for (auto token : entry.tokens)
+        for (auto token : entry->tokens)
             line << hex[token % 16];
 
         if (withTrailingSpace)
@@ -532,43 +739,126 @@ GlyphArrangement mcl::GlyphArrangementArray::getGlyphs (int index,
         glyphSource.addLineOfText (font, line, 0.f, 0.f);
     }
 
+	
+
     for (int n = 0; n < glyphSource.getNumGlyphs(); ++n)
     {
-        if (token == -1 || entry.tokens.getUnchecked (n) == token)
+        if (token == -1 || entry->tokens.getUnchecked (n) == token)
         {
             auto glyph = glyphSource.getGlyph (n);
-            glyph.moveBy (TEXT_INDENT, baseline);
+			
+			
+
+	        glyph.moveBy (TEXT_INDENT, baseline);
+
             glyphs.addGlyph (glyph);
         }
     }
+
     return glyphs;
 }
+
+
 
 void mcl::GlyphArrangementArray::ensureValid (int index) const
 {
     if (! isPositiveAndBelow (index, lines.size()))
         return;
 
-    auto& entry = lines.getReference (index);
+	auto entry = lines[index];
 
-    if (entry.glyphsAreDirty)
+    if (entry->glyphsAreDirty)
     {
-        entry.tokens.resize (entry.string.length());
-        entry.glyphs.addLineOfText (font, entry.string, 0.f, 0.f);
-        entry.glyphsWithTrailingSpace.addLineOfText (font, entry.string + " ", 0.f, 0.f);
-        entry.glyphsAreDirty = ! cacheGlyphArrangement;
+		//entry.string = Helpers::replaceTabsWithSpaces(entry.string, 4);
+
+		auto toDraw = entry->string;// ;
+
+        entry->tokens.resize (toDraw.length());
+		entry->glyphs.clear();
+		entry->glyphsWithTrailingSpace.clear();
+
+		
+
+		if (maxLineWidth != -1)
+		{
+			entry->glyphs.addJustifiedText(font, toDraw, 0.f, 0.f, maxLineWidth, Justification::centredLeft);
+			entry->glyphsWithTrailingSpace.addJustifiedText(font, toDraw + " ", 0.f, 0.f, maxLineWidth, Justification::centredLeft);
+		}
+		else
+		{
+			entry->glyphs.addLineOfText (font, toDraw, 0.f, 0.f);
+			entry->glyphsWithTrailingSpace.addLineOfText (font, toDraw, 0.f, 0.f);
+		}
+
+
+
+		entry->positions.clearQuick();
+		entry->positions.ensureStorageAllocated(entry->string.length());
+		entry->characterBounds = characterRectangle;
+		auto n = entry->glyphs.getNumGlyphs();
+		auto first = entry->glyphsWithTrailingSpace.getBoundingBox(0, 1, true);
+
+		
+		for (int i = 0; i < n; i++)
+		{
+			auto box = entry->glyphs.getBoundingBox(i, 1, true);
+			box = box.translated(-first.getX(), -first.getY());
+
+			float x = box.getY() / characterRectangle.getHeight();
+			float y = box.getX() / characterRectangle.getWidth();
+
+			entry->positions.add({ roundToInt(x), roundToInt(y) });
+		}
+
+		entry->charactersPerLine.clear();
+
+		int index = 0;
+
+		for (const auto& p : entry->positions)
+		{
+			auto l = p.x;
+			auto characterIsTab = entry->string[index++] == '\t';
+			auto c = p.y + 1;
+
+			if (isPositiveAndBelow(l, entry->charactersPerLine.size()))
+			{
+				auto& thisC = entry->charactersPerLine.getReference(l);
+				thisC = jmax(thisC, c);
+			}
+			else
+			{
+				entry->charactersPerLine.set(l, c);
+			}
+		}
+
+		if (entry->charactersPerLine.isEmpty())
+			entry->charactersPerLine.add(0);
+
+		entry->glyphsAreDirty = !cacheGlyphArrangement;
+		entry->height = font.getHeight() * (float)entry->charactersPerLine.size();
     }
 }
 
-void mcl::GlyphArrangementArray::invalidateAll()
+
+void mcl::GlyphArrangementArray::invalidate(Range<int> lineRange)
 {
-    for (auto& entry : lines)
-    {
-        entry.glyphsAreDirty = true;
-        entry.tokensAreDirty = true;
-    }
-}
+	if (lineRange.isEmpty())
+	{
+		lineRange = { 0, lines.size() };
+	}
 
+	for (int i = lineRange.getStart(); i < lineRange.getEnd() + 1; i++)
+	{
+		if (isPositiveAndBelow(i, lines.size()))
+		{
+			lines[i]->tokensAreDirty = true;
+			lines[i]->glyphsAreDirty = true;
+		}
+	}
+
+	for (int i = 0; i < lines.size(); i++)
+		ensureValid(i);
+}
 
 
 
@@ -595,34 +885,48 @@ int mcl::TextDocument::getNumColumns (int row) const
 
 float mcl::TextDocument::getVerticalPosition (int row, Metric metric) const
 {
-    float lineHeight = font.getHeight() * lineSpacing;
-    float gap = font.getHeight() * (lineSpacing - 1.f) * 0.5f;
+	row = jmin(row, lines.size());
+	float pos = rowPositions[row];
+
+	
+	float gap = font.getHeight() * (lineSpacing - 1.f) * 0.5f;
+
+	
+	float lineHeight = getCharacterRectangle().getHeight() + gap;
+
+	if(isPositiveAndBelow(row, lines.size()))
+		lineHeight = lines.lines[row]->height + gap;
 
     switch (metric)
     {
-        case Metric::top     : return lineHeight * row;
-        case Metric::ascent  : return lineHeight * row + gap;
-        case Metric::baseline: return lineHeight * row + gap + font.getAscent();
-        case Metric::descent : return lineHeight * row + gap + font.getAscent() + font.getDescent();
-        case Metric::bottom  : return lineHeight * row + lineHeight;
+        case Metric::top     : return pos;
+		case Metric::ascent: return pos + gap;
+		case Metric::baseline: return pos + gap + font.getAscent();
+		case Metric::bottom: return pos + lineHeight;
     }
 }
 
 Point<float> mcl::TextDocument::getPosition (Point<int> index, Metric metric) const
 {
-    return Point<float> (getGlyphBounds (index).getX(), getVerticalPosition (index.x, metric));
+    return Point<float> (getGlyphBounds (index, GlyphArrangementArray::ReturnBeyondLastCharacter).getX(), getVerticalPosition (index.x, metric));
 }
 
-Array<Rectangle<float>> mcl::TextDocument::getSelectionRegion (Selection selection, Rectangle<float> clip) const
+RectangleList<float> mcl::TextDocument::getSelectionRegion (Selection selection, Rectangle<float> clip) const
 {
-    Array<Rectangle<float>> patches;
+    RectangleList<float> patches;
     Selection s = selection.oriented();
+
+	auto m = GlyphArrangementArray::ReturnBeyondLastCharacter;
 
     if (s.head.x == s.tail.x)
     {
         int c0 = s.head.y;
         int c1 = s.tail.y;
-        patches.add (getBoundsOnRow (s.head.x, Range<int> (c0, c1)));
+
+		auto b = getBoundsOnRow(s.head.x, Range<int>(c0, c1), m);
+
+		patches.add(b);
+			
     }
     else
     {
@@ -641,9 +945,9 @@ Array<Rectangle<float>> mcl::TextDocument::getSelectionRegion (Selection selecti
             })) continue;
 
             if      (n == r1 && c1 == 0) continue;
-            else if (n == r0) patches.add (getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1)));
-            else if (n == r1) patches.add (getBoundsOnRow (r1, Range<int> (0, c1)));
-            else              patches.add (getBoundsOnRow (n,  Range<int> (0, getNumColumns (n) + 1)));
+            else if (n == r0) patches.add(getBoundsOnRow (r0, Range<int> (c0, getNumColumns (r0) + 1), m));
+            else if (n == r1) patches.add(getBoundsOnRow (r1, Range<int> (0, c1), m));
+            else              patches.add(getBoundsOnRow (n,  Range<int> (0, getNumColumns (n) + 1), m));
         }
     }
     return patches;
@@ -653,29 +957,132 @@ Rectangle<float> mcl::TextDocument::getBounds() const
 {
     if (cachedBounds.isEmpty())
     {
-        auto bounds = Rectangle<float>();
+		int maxX = 0;
+
+		for (auto l : lines.lines)
+		{
+			for (int i = 0; i < l->charactersPerLine.size(); i++)
+			{
+				maxX = jmax(maxX, l->charactersPerLine[i]);
+			}
+
+		}
+
+		auto bottom = getVerticalPosition(lines.size() - 1, Metric::bottom);
+		auto right = maxX * getCharacterRectangle().getWidth() + TEXT_INDENT;
+
+		Rectangle<float> newBounds(0.0f, 0.0f, (float)right, bottom);
+
+#if 0
+		RectangleList<float> bounds;
 
         for (int n = 0; n < getNumRows(); ++n)
         {
-            bounds = bounds.getUnion (getBoundsOnRow (n, Range<int> (0, getNumColumns (n))));
+			auto b = getBoundsOnRow(n, Range<int>(0, getNumColumns(n)), GlyphArrangementArray::ReturnBeyondLastCharacter);
+
+			if (b.isEmpty())
+				bounds.add(getCharacterRectangle().translated(0.0f, getVerticalPosition(n, Metric::top)));
+			else
+				bounds.add(b);
         }
-        return cachedBounds = bounds;
+
+		auto newBounds = bounds.getBounds();
+
+		
+
+		newBounds = newBounds.withHeight(newBounds.getHeight() + gap/2.0f);
+#endif
+
+        return cachedBounds = newBounds;
     }
     return cachedBounds;
 }
 
-Rectangle<float> mcl::TextDocument::getBoundsOnRow (int row, Range<int> columns) const
+RectangleList<float> mcl::TextDocument::getBoundsOnRow (int row, Range<int> columns, GlyphArrangementArray::OutOfBoundsMode m) const
 {
-    return getGlyphsForRow (row, -1, true)
-        .getBoundingBox    (columns.getStart(), columns.getLength(), true)
-        .withTop           (getVerticalPosition (row, Metric::top))
-        .withBottom        (getVerticalPosition (row, Metric::bottom));
+	RectangleList<float> b;
+
+	if (isPositiveAndBelow(row, getNumRows()))
+	{
+		columns.setStart(jmax(columns.getStart(), 0));
+		auto l = lines.lines[row];
+
+		auto boundsToUse = l->characterBounds;
+
+		if (boundsToUse.isEmpty())
+			boundsToUse = { 0.0f, 0.0f, font.getStringWidthFloat(" "), font.getHeight() };
+
+		float yPos = getVerticalPosition(row, Metric::top);
+		float xPos = TEXT_INDENT;
+		float gap = lineSpacing * font.getHeight() - font.getHeight();
+
+		for (int i = columns.getStart(); i < columns.getEnd(); i++)
+		{
+			auto p = l->getPositionInLine(i, m);
+			auto cBound = boundsToUse.translated(xPos + p.y * boundsToUse.getWidth(), yPos + p.x * boundsToUse.getHeight());
+
+			if (p.x == l->charactersPerLine.size() - 1)
+				cBound = cBound.withHeight(cBound.getHeight() + gap);
+
+			bool isTab = l->string[i] == '\t';
+
+			if (isTab)
+			{
+				int tabLength = 4 - p.y % 4;
+
+				cBound.setWidth((float)tabLength * boundsToUse.getWidth());
+			}
+
+			b.add(cBound);
+		}
+
+		b.consolidate();
+	}
+
+	return b;
 }
 
-Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index) const
+Rectangle<float> mcl::TextDocument::getGlyphBounds (Point<int> index, GlyphArrangementArray::OutOfBoundsMode m) const
 {
-    index.y = jlimit (0, getNumColumns (index.x), index.y);
-    return getBoundsOnRow (index.x, Range<int> (index.y, index.y + 1));
+#if 0
+
+	auto topOfRow = getVerticalPosition(index.x, Metric::top);
+
+	auto firstBounds = lines.lines[index.x].characterBounds;
+
+	auto b = getGlyphsForRow(index.x, -1, true).getBoundingBox(index.y, 1, true);
+
+	if (index.y == getNumColumns(index.x))
+	{
+		b = getGlyphsForRow(index.x, -1, true).getBoundingBox(jmax(0, index.y - 1), 1, true);
+		b = b.translated(b.getWidth(), 0.0f);
+	}
+
+	if (getNumColumns(index.x) == 0)
+	{
+		b = { (float)TEXT_INDENT, topOfRow, font.getStringWidthFloat(" "), font.getHeight() * lineSpacing };
+	}
+
+	//auto b = lines.lines[index.x].glyphs.getBoundingBox(index.y-1, 1, true);
+
+	//b = b.translated(0, topOfRow);
+
+	b = b.withSizeKeepingCentre(b.getWidth(), font.getHeight() * lineSpacing);
+
+	return b;
+#endif
+
+	index.x = jmax(0, jmin(lines.size()-1, index.x));
+
+	index.y = jlimit(0, getNumColumns(index.x), index.y);
+
+
+	auto numColumns = getNumColumns(index.x);
+
+	auto first = jlimit(0, numColumns, index.y);
+	
+
+	return getBoundsOnRow(index.x, Range<int>(first, first+1), m).getRectangle(0);
 }
 
 GlyphArrangement mcl::TextDocument::getGlyphsForRow (int row, int token, bool withTrailingSpace) const
@@ -701,10 +1108,58 @@ GlyphArrangement mcl::TextDocument::findGlyphsIntersecting (Rectangle<float> are
 
 juce::Range<int> mcl::TextDocument::getRangeOfRowsIntersecting (juce::Rectangle<float> area) const
 {
-    auto lineHeight = font.getHeight() * lineSpacing;
-    auto row0 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getY() / lineHeight));
-    auto row1 = jlimit (0, jmax (getNumRows() - 1, 0), int (area.getBottom() / lineHeight));
-    return { row0, row1 + 1 };
+	if (rowPositions.isEmpty())
+		return { 0, 1 };
+
+	Range<float> yRange = { area.getY() - getRowHeight(), area.getBottom() + getRowHeight()};
+
+	int min = INT_MAX;
+	int max = 0;
+
+	for (int i = 0; i < rowPositions.size(); i++)
+	{
+		if (yRange.contains(rowPositions[i]))
+		{
+			min = jmin(min, i);
+			max = jmax(max, i);
+		}
+	}
+	
+	return { min, max+1 };
+
+
+	int start = INT_MAX;
+	int end = -1;
+
+	float gap = font.getHeight() * (lineSpacing - 1.f) * 0.5f;
+
+
+	float lineHeight = getCharacterRectangle().getHeight() + gap;
+
+	
+
+	for (int i = 0; i < getNumRows(); i++)
+	{
+		auto top = rowPositions[i];
+
+		if (isPositiveAndBelow(i, lines.size()))
+			lineHeight = lines.lines[i]->height + gap;
+
+		auto bottom = top + lineHeight;
+
+		Rectangle<float> d(0.0f, top, 1.0f, bottom - top);
+
+		if (area.intersects(d))
+		{
+			start = jmin(start, i);
+			end = jmax(end, i);
+		}
+	}
+
+	if (end == -1)
+		return {};
+
+	return { start, end+1};
 }
 
 Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Rectangle<float> area,
@@ -718,15 +1173,12 @@ Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Recta
         RowData data;
         data.rowNumber = n;
 
-        if (computeHorizontalExtent) // slower
-        {
-            data.bounds = getBoundsOnRow (n, Range<int> (0, getNumColumns (n)));
-        }
-        else // faster
-        {
-            data.bounds.setY      (getVerticalPosition (n, Metric::top));
-            data.bounds.setBottom (getVerticalPosition (n, Metric::bottom));
-        }
+		data.bounds = getBoundsOnRow(n, Range<int>(0, getNumColumns(n)), GlyphArrangementArray::ReturnBeyondLastCharacter);
+
+		if (data.bounds.isEmpty())
+		{
+			data.bounds.add(0.0f, getVerticalPosition(n, Metric::top), 1.0f, font.getHeight() * lineSpacing);
+		}
 
         for (const auto& s : selections)
         {
@@ -743,6 +1195,45 @@ Array<mcl::TextDocument::RowData> mcl::TextDocument::findRowsIntersecting (Recta
 
 Point<int> mcl::TextDocument::findIndexNearestPosition (Point<float> position) const
 {
+	position = position.translated(getCharacterRectangle().getWidth() * 0.5f, 0.0f);
+
+	auto gap = font.getHeight() * lineSpacing - font.getHeight();
+	float yPos = gap/2.0f;
+
+	for (int l = 0; l < getNumRows(); l++)
+	{
+		auto& line = lines.lines[l];
+
+		Range<float> p(yPos-gap/2.0f, yPos + line->height + gap/2.0f);
+
+		if (p.contains(position.y))
+		{
+			auto glyphs = getGlyphsForRow(l, -1, true);
+
+			int numGlyphs = glyphs.getNumGlyphs();
+			auto col = numGlyphs;
+
+			for (int n = 0; n < numGlyphs; ++n)
+			{
+				auto b = glyphs.getBoundingBox(n, 1, true).expanded(0.0f, gap/2.f);
+
+				if (b.contains(position))
+				{
+					col = n;
+					break;
+				}
+			}
+
+			return { l, col };
+		}
+
+		yPos = p.getEnd();
+	}
+
+	return {0, 0};
+
+	jassertfalse;
+
     auto lineHeight = font.getHeight() * lineSpacing;
     auto row = jlimit (0, jmax (getNumRows() - 1, 0), int (position.y / lineHeight));
     auto col = 0;
@@ -803,7 +1294,7 @@ bool mcl::TextDocument::prev (Point<int>& index) const
 
 bool mcl::TextDocument::nextRow (Point<int>& index) const
 {
-    if (index.x < getNumRows())
+    if (index.x < getNumRows()-1)
     {
         index.x += 1;
         index.y = jmin (index.y, getNumColumns (index.x));
@@ -884,7 +1375,7 @@ void mcl::TextDocument::navigate (juce::Point<int>& i, Target target, Direction 
             {
                 if (getNumColumns (i.x) > 0)
                 {
-                    s = t;
+                    //s = t;
                     t = lines.getToken (i.x, i.y, s);
                 }
             }
@@ -927,6 +1418,9 @@ mcl::Selection mcl::TextDocument::search (juce::Point<int> start, const juce::St
 
 juce_wchar mcl::TextDocument::getCharacter (Point<int> index) const
 {
+	if (index.x < 0 || index.y < 0)
+		return 0;
+
     jassert (0 <= index.x && index.x <= lines.size());
     jassert (0 <= index.y && index.y <= lines[index.x].length());
 
@@ -985,17 +1479,28 @@ mcl::Transaction mcl::TextDocument::fulfill (const Transaction& transaction)
         existingSelection.pushBy (Selection (t.content).startingFrom (s.head));
     }
 
-    lines.removeRange (s.head.x, s.tail.x - s.head.x + 1);
-    int row = s.head.x;
+	auto sPos = CodeDocument::Position(doc, s.head.x, s.head.y);
+	auto ePos = CodeDocument::Position(doc, s.tail.x, s.tail.y);
 
-    if (M.isEmpty())
-    {
-        lines.insert (row++, String());
-    }
-    for (const auto& line : StringArray::fromLines (M))
-    {
-        lines.insert (row++, line);
-    }
+	shouldBe = M;
+
+	ScopedValueSetter<bool> svs(checkThis, true);
+
+	doc.replaceSection(sPos.getPosition(), ePos.getPosition(), t.content);
+
+	
+
+	
+	
+
+#if 0
+	
+
+	
+#endif
+
+	
+	
 
     using D = Transaction::Direction;
     auto inf = std::numeric_limits<float>::max();
@@ -1031,6 +1536,52 @@ void mcl::TextDocument::applyTokens (juce::Range<int> rows, const juce::Array<Se
     }
 }
 
+juce::Array<juce::Line<float>> mcl::TextDocument::getUnderlines(const Selection& s, Metric m) const
+{
+	auto o = s.oriented();
+
+	Range<int> lineRange = { o.head.x, o.tail.x + 1 };
+	Array<Line<float>> underlines;
+
+	for (int l = lineRange.getStart(); l < lineRange.getEnd(); l++)
+	{
+		if (isPositiveAndBelow(l, getNumRows()))
+		{
+			int left = 0;
+			int right = getNumColumns(l);
+
+			if (l == lineRange.getStart())
+				left = o.head.y;
+
+			if (l == lineRange.getEnd() - 1)
+				right = o.tail.y;
+
+			auto ul = lines.lines[l]->getUnderlines({ left, right }, !s.isSingular());
+
+			float delta = 0.0f;
+
+			switch (m)
+			{
+			case Metric::top:		delta = 0.0f; break;
+			case Metric::ascent:
+			case Metric::baseline:  delta = (getRowHeight() + getFontHeight()) / 2.0f + 2.0f; break;
+			case Metric::bottom:	delta = getRowHeight();
+			default:
+				break;
+			}
+
+			auto t = AffineTransform::translation(TEXT_INDENT, getVerticalPosition(l, Metric::top) + delta);
+			for (auto& u : ul)
+			{
+				u.applyTransform(t);
+			}
+
+			underlines.addArray(ul);
+		}
+	}
+
+	return underlines;
+}
 
 
 
@@ -1070,10 +1621,7 @@ mcl::Transaction mcl::Transaction::accountingForSpecialCharacters (const TextDoc
     Transaction t = *this;
     auto& s = t.selection;
 
-    if (content.getLastCharacter() == KeyPress::tabKey)
-    {
-        t.content = "    ";
-    }
+    
     if (content.getLastCharacter() == KeyPress::backspaceKey)
     {
         if (s.head.y == s.tail.y)
@@ -1102,26 +1650,65 @@ UndoableAction* mcl::Transaction::on (TextDocument& document, Callback callback)
 
 
 //==============================================================================
-mcl::TextEditor::TextEditor()
-: caret (document)
+mcl::TextEditor::TextEditor(CodeDocument& codeDoc)
+: document(codeDoc)
+, caret (document)
 , gutter (document)
+, linebreakDisplay(document)
+, map(document, new CPlusPlusCodeTokeniser())
 , highlight (document)
+, docRef(codeDoc)
 {
     lastTransactionTime = Time::getApproximateMillisecondCounter();
     document.setSelections ({ Selection() });
+	docRef.addListener(this);
 
-    setFont (Font (Font::getDefaultMonospacedFontName(), 16, 0));
+	
+	setFont(Font("Consolas", 16.0f, Font::plain));
+    //setFont (Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain));
 
-    translateView (GUTTER_WIDTH, 0);
+    translateView (gutter.getGutterWidth(), 0);
     setWantsKeyboardFocus (true);
 
+	addAndMakeVisible(linebreakDisplay);
     addAndMakeVisible (highlight);
     addAndMakeVisible (caret);
     addAndMakeVisible (gutter);
+	addAndMakeVisible(map);
+
+
+	struct Type
+	{
+		String name;
+		uint32 colour;
+	};
+
+	const Type types[] =
+	{
+		{ "Error", 0xffBB3333 },
+		{ "Comment", 0xff77CC77 },
+		{ "Keyword", 0xffbbbbff },
+		{ "Operator", 0xffCCCCCC },
+		{ "Identifier", 0xffDDDDFF },
+		{ "Integer", 0xffDDAADD },
+		{ "Float", 0xffEEAA00 },
+		{ "String", 0xffDDAAAA },
+		{ "Bracket", 0xffFFFFFF },
+		{ "Punctuation", 0xffCCCCCC },
+		{ "Preprocessor Text", 0xffCC7777 }
+	};
+
+	for (unsigned int i = 0; i < sizeof(types) / sizeof(types[0]); ++i)  // (NB: numElementsInArray doesn't work here in GCC4.2)
+		colourScheme.set(types[i].name, Colour(types[i].colour));
+
+
+	map.colourScheme = colourScheme;
 }
 
 mcl::TextEditor::~TextEditor()
 {
+	docRef.removeListener(this);
+
 #if MCL_ENABLE_OPEN_GL
     context.detach();
 #endif
@@ -1144,7 +1731,7 @@ void mcl::TextEditor::translateView (float dx, float dy)
     auto W = viewScaleFactor * document.getBounds().getWidth();
     auto H = viewScaleFactor * document.getBounds().getHeight();
 
-    translation.x = jlimit (jmin (GUTTER_WIDTH, -W + getWidth()), GUTTER_WIDTH, translation.x + dx);
+    translation.x = jlimit (jmin (gutter.getGutterWidth(), -W + getWidth()), gutter.getGutterWidth(), translation.x + dx);
     translation.y = jlimit (jmin (-0.f, -H + getHeight()), 0.0f, translation.y + dy);
 
     updateViewTransform();
@@ -1152,12 +1739,14 @@ void mcl::TextEditor::translateView (float dx, float dy)
 
 void mcl::TextEditor::scaleView (float scaleFactorMultiplier, float verticalCenter)
 {
-    auto newS = viewScaleFactor * scaleFactorMultiplier;
-    auto fixedy = Point<float> (0, verticalCenter).transformedBy (transform.inverted()).y;
+    viewScaleFactor = jlimit(0.5f, 4.0f, viewScaleFactor * scaleFactorMultiplier);
+	gutter.setScaleFactor(viewScaleFactor);
+	
+	
 
-    translation.y = -newS * fixedy + verticalCenter;
-    viewScaleFactor = newS;
-    updateViewTransform();
+	refreshLineWidth();
+	//translateView(0.0f, 0.0f);
+	
 }
 
 void mcl::TextEditor::updateViewTransform()
@@ -1166,6 +1755,14 @@ void mcl::TextEditor::updateViewTransform()
     highlight.setViewTransform (transform);
     caret.setViewTransform (transform);
     gutter.setViewTransform (transform);
+	linebreakDisplay.setViewTransform(transform);
+
+
+	auto rows = document.getRangeOfRowsIntersecting(getLocalBounds().toFloat().transformed(transform.inverted()));
+
+	map.setVisibleRange(rows);
+	
+
     repaint();
 }
 
@@ -1174,6 +1771,52 @@ void mcl::TextEditor::updateSelections()
     highlight.updateSelections();
     caret.updateSelections();
     gutter.updateSelections();
+
+	auto s = document.getSelections().getFirst();
+
+	auto& doc = document.getCodeDocument();
+	CodeDocument::Position pos(doc, s.head.x, s.head.y);
+	pos.moveBy(-1);
+	auto r = pos.getCharacter();
+
+	if (ActionHelpers::isRightClosure(r))
+	{
+		int numToSkip = 0;
+
+		while (pos.getPosition() > 0)
+		{
+			pos.moveBy(-1);
+
+			auto l = pos.getCharacter();
+
+			if (l == r)
+			{
+				numToSkip++;
+			}
+
+			if (ActionHelpers::isMatchingClosure(l, r))
+			{
+				numToSkip--;
+
+				if (numToSkip < 0)
+				{
+					currentClosure[0] = { pos.getLineNumber(), pos.getIndexInLine() + 1, pos.getLineNumber(), pos.getIndexInLine() + 1 };
+					currentClosure[1] = s;
+					showClosures = true;
+					return;
+				}
+			}
+		}
+
+		currentClosure[0] = {};
+		currentClosure[1] = s;
+		showClosures = true;
+		return;
+	}
+	
+	currentClosure[0] = {};
+	currentClosure[1] = {};
+	showClosures = false;
 }
 
 void mcl::TextEditor::translateToEnsureCaretIsVisible()
@@ -1192,11 +1835,31 @@ void mcl::TextEditor::translateToEnsureCaretIsVisible()
     }
 }
 
+namespace Icons
+{
+static const unsigned char lineBreak[] = { 110,109,254,60,16,68,10,247,170,68,108,254,60,16,68,0,8,177,68,98,254,60,16,68,215,27,177,68,221,28,16,68,215,43,177,68,63,245,15,68,215,43,177,68,108,72,217,13,68,215,43,177,68,108,72,217,13,68,205,44,177,68,108,172,60,9,68,205,44,177,68,108,172,60,
+9,68,10,55,179,68,108,0,104,3,68,205,76,176,68,108,172,60,9,68,143,98,173,68,108,172,60,9,68,205,108,175,68,108,201,38,13,68,205,108,175,68,108,201,38,13,68,10,247,170,68,108,254,60,16,68,10,247,170,68,99,101,0,0 };
+
+}
+
 void mcl::TextEditor::resized()
 {
-    highlight.setBounds (getLocalBounds());
-    caret.setBounds (getLocalBounds());
-    gutter.setBounds (getLocalBounds());
+	auto b = getLocalBounds();
+	
+	
+	
+	
+
+	map.setBounds(b.removeFromRight(150));
+	linebreakDisplay.setBounds(b.removeFromRight(15));
+
+	maxLinesToShow = b.getWidth() - TEXT_INDENT - 10;
+
+	refreshLineWidth();
+	
+    highlight.setBounds (b);
+    caret.setBounds (b);
+    gutter.setBounds (b);
     resetProfilingData();
 }
 
@@ -1207,6 +1870,9 @@ void mcl::TextEditor::paint (Graphics& g)
 
     String renderSchemeString;
 
+	renderTextUsingGlyphArrangement(g);
+
+#if REMOVE
     switch (renderScheme)
     {
         case RenderScheme::usingAttributedStringSingle:
@@ -1222,6 +1888,7 @@ void mcl::TextEditor::paint (Graphics& g)
             renderSchemeString = "glyph arr.";
             break;
     }
+#endif
 
     lastTimeInPaint = Time::getMillisecondCounterHiRes() - start;
     accumulatedTimeInPaint += lastTimeInPaint;
@@ -1243,6 +1910,33 @@ void mcl::TextEditor::paint (Graphics& g)
         g.setFont (Font ("Courier New", 12, 0));
         g.drawMultiLineText (info, getWidth() - 280, 10, 280);
     }
+
+	if (showClosures)
+	{
+		bool ok = !(currentClosure[0] == Selection());
+
+		auto rect = [this](const Selection& s)
+		{
+			auto p = s.head;
+			auto l = document.getBoundsOnRow(p.x, { p.y - 1, p.y }, GlyphArrangementArray::ReturnLastCharacter);
+			auto r = l.getRectangle(0);
+			return r.transformed(transform).expanded(1.0f);
+		};
+
+		if (ok)
+		{
+			g.setColour(findColour(CodeEditorComponent::defaultTextColourId).withAlpha(0.6f));
+			g.drawRoundedRectangle(rect(currentClosure[0]), 2.0f, 1.0f);
+			g.drawRoundedRectangle(rect(currentClosure[1]), 2.0f, 1.0f);
+		}
+		else
+		{
+			g.setColour(Colours::red.withAlpha(0.5f));
+			g.drawRoundedRectangle(rect(currentClosure[1]), 2.0f, 1.0f);
+		}
+
+		
+	}
 
 #if PROFILE_PAINTS
     std::cout << "[TextEditor::paint] " << lastTimeInPaint << std::endl;
@@ -1272,6 +1966,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
         menu.addItem (7, "Syntax highlighting", true, enableSyntaxHighlighting, nullptr);
         menu.addItem (8, "Draw profiling info", true, drawProfilingInfo, nullptr);
         menu.addItem (9, "Debug tokens", true, DEBUG_TOKENS, nullptr);
+		menu.addItem(10, "Enable line breaks", true, linebreakEnabled);
 
         switch (menu.show())
         {
@@ -1289,6 +1984,7 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
             case 7: enableSyntaxHighlighting = ! enableSyntaxHighlighting; break;
             case 8: drawProfilingInfo = ! drawProfilingInfo; break;
             case 9: DEBUG_TOKENS = ! DEBUG_TOKENS; break;
+			case 10: linebreakEnabled = !linebreakEnabled; refreshLineWidth();
         }
 
         resetProfilingData();
@@ -1317,11 +2013,31 @@ void mcl::TextEditor::mouseDrag (const MouseEvent& e)
 {
     if (e.mouseWasDraggedSinceMouseDown())
     {
-        auto selection = document.getSelections().getFirst();
-        selection.head = document.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
-        document.setSelections ({ selection });
-        translateToEnsureCaretIsVisible();
-        updateSelections();
+		if (e.mods.isAltDown())
+		{
+			auto start = document.findIndexNearestPosition(e.mouseDownPosition.transformedBy(transform.inverted()));
+			auto current = document.findIndexNearestPosition(e.position.transformedBy(transform.inverted()));
+
+			Range<int> lineRange = { start.x, current.x + 1 };
+
+			Array<Selection> multiLineSelections;
+
+			for (int i = lineRange.getStart(); i < lineRange.getEnd(); i++)
+			{
+				multiLineSelections.add({ i, current.y, i, start.y});
+			}
+
+			document.setSelections(multiLineSelections);
+			updateSelections();
+		}
+		else
+		{
+			auto selection = document.getSelections().getFirst();
+			selection.head = document.findIndexNearestPosition(e.position.transformedBy(transform.inverted()));
+			document.setSelections({ selection });
+			translateToEnsureCaretIsVisible();
+			updateSelections();
+		}
     }
 }
 
@@ -1348,10 +2064,10 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
 
 	if (e.mods.isCommandDown())
 	{
-		auto factor = 1.0f + (float)d.deltaY / 200.0f;
+		auto factor = 1.0f + (float)d.deltaY / 5.0f;
 
-		scaleView(factor, e.position.y);
-
+		scaleView(factor, 0.0f);
+		return;
 	}
 
 #if JUCE_WINDOWS
@@ -1375,6 +2091,7 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 {
     scaleView (scaleFactor, e.position.y);
 }
+
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
@@ -1405,6 +2122,42 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     };
 
+	auto skipIfClosure = [this](juce_wchar c)
+	{
+		if (ActionHelpers::isRightClosure(c))
+		{
+			auto s = document.getSelections().getFirst();
+			auto e = document.getCharacter(s.head);
+			
+			if (e == c)
+			{
+				document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::both);
+				updateSelections();
+				return true;
+			}
+		}
+
+		
+
+		insert(String::charToString(c));
+		return true;
+	};
+
+	auto insertClosure = [this](juce_wchar c)
+	{
+		switch (c)
+		{
+		case '"': insert("\"\""); break;
+		case '(': insert("()"); break;
+		case '{': insert("{}"); break;
+		case '[': insert("[]"); break;
+		}
+
+		document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::both);
+
+		return true;
+	};
+
     auto expand = [this, nav] (Target target)
     {
 		document.navigateSelections(target, Direction::backwardCol, Selection::Part::tail);
@@ -1413,6 +2166,83 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		updateSelections();
         return true;
     };
+
+	auto insertTabAfterBracket = [this]()
+	{
+		auto s = document.getSelections().getLast();
+		auto l = document.getCharacter(s.head.translated(0, -1));
+
+		if (l == '{')
+		{
+			int numChars = s.head.y-1;
+
+			juce::String s = "\n\t";
+			juce::String t = "\n";
+
+			while (--numChars >= 0)
+			{
+				s << "\t";
+				t << "\t";
+			}
+
+			insert(s);
+			insert(t);
+			document.navigateSelections(Target::line, Direction::backwardCol, Selection::Part::both);
+			document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::both);
+			return true;
+		}
+		else
+		{
+			
+			CodeDocument::Position pos(document.getCodeDocument(), s.head.x, s.head.y);
+			CodeDocument::Position lineStart(document.getCodeDocument(), s.head.x, 0);
+
+			auto before = document.getCodeDocument().getTextBetween(lineStart, pos);
+			auto trimmed = before.trimCharactersAtStart(" \t");
+
+			auto delta = before.length() - trimmed.length();
+
+			insert("\n" + before.substring(0, delta));
+		}
+
+		
+
+		return true;
+	};
+
+	auto addNextTokenToSelection = [this]()
+	{
+		auto s = document.getSelections().getLast().oriented();
+		
+		CodeDocument::Position start(document.getCodeDocument(), s.head.x, s.head.y);
+		CodeDocument::Position end(document.getCodeDocument(), s.tail.x, s.tail.y);
+
+		auto t = document.getCodeDocument().getTextBetween(start, end);
+
+		while (start.getPosition() < document.getCodeDocument().getNumCharacters())
+		{
+			start.moveBy(1);
+			end.moveBy(1);
+
+			auto current = document.getCodeDocument().getTextBetween(start, end);
+
+			if (current == t)
+			{
+				Selection s(start.getLineNumber(), start.getIndexInLine(), end.getLineNumber(), end.getIndexInLine());
+
+				
+
+				document.addSelection(s.swapped());
+				translateToEnsureCaretIsVisible();
+				updateSelections();
+				return true;
+			}
+				
+		}
+
+		
+		return true;
+	};
 
     auto addCaret = [this] (Target target, Direction direction)
     {
@@ -1443,16 +2273,48 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     };
 
-	auto remove = [this, expandBack](Target target, Direction direction)
+	auto remove = [this, expand, expandBack](Target target, Direction direction)
 	{
-		expandBack(target, direction) && insert({});
+		const auto& s = document.getSelections().getLast();
+
+		auto l = document.getCharacter(s.head.translated(0, -1));
+		auto r = document.getCharacter(s.head);
+		
+		if (ActionHelpers::isMatchingClosure(l, r))
+		{
+			document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::tail);
+			document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::head);
+			
+			insert({});
+			return true;
+		}
+
+		if (s.isSingular())
+			expandBack(target, direction);
+
+		insert({});
 		return true;
 	};
 
     // =======================================================================================
     if (key.isKeyCode (KeyPress::escapeKey))
     {
-        document.setSelections (document.getSelections().getLast());
+		bool doneSomething = false;
+
+		for (auto& s : document.getSelections())
+		{
+			if (!s.isSingular())
+			{
+				s.tail = s.head;
+				doneSomething = true;
+			}
+		}
+
+		if (!doneSomething)
+		{
+			document.setSelections(document.getSelections().getLast());
+		}
+			
         updateSelections();
         return true;
     }
@@ -1484,9 +2346,58 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         if (key.isKeyCode (KeyPress::upKey  )) return nav (Target::document, Direction::backwardRow);
     }
 
-    if (key.isKeyCode (KeyPress::rightKey)) return nav (Target::character, Direction::forwardCol);
-    if (key.isKeyCode (KeyPress::leftKey )) return nav (Target::character, Direction::backwardCol);
-    if (key.isKeyCode (KeyPress::downKey )) return nav (Target::character, Direction::forwardRow);
+
+
+	if (key.isKeyCode(KeyPress::tabKey))
+	{
+		auto s = document.getSelections().getFirst();
+
+		if (s.head.x != s.tail.x)
+		{
+			CodeDocument::Position start(document.getCodeDocument(), s.head.x, s.head.y);
+			CodeDocument::Position end(document.getCodeDocument(), s.tail.x, s.tail.y);
+
+			start.setPositionMaintained(true);
+			end.setPositionMaintained(true);
+
+			s = s.oriented();
+
+			Range<int> rows(s.head.x, s.tail.x + 1);
+
+			Array<Selection> lineStarts;
+
+			for (int i = rows.getStart(); i < rows.getEnd(); i++)
+			{
+				lineStarts.add(Selection(i, 0, i, 0));
+			}
+
+			if (mods.isShiftDown())
+			{
+				document.setSelections(lineStarts);
+				document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::both);
+
+				remove(Target::character, Direction::backwardCol);
+			}
+			else
+			{
+				document.setSelections(lineStarts);
+				insert("\t");
+			}
+
+			
+
+			Selection prev(start.getLineNumber(), start.getIndexInLine(), end.getLineNumber(), end.getIndexInLine());
+
+			document.setSelections({ prev });
+
+			updateSelections();
+			return true;
+		}
+	}
+
+	if (key.isKeyCode(KeyPress::rightKey)) return nav(Target::character, Direction::forwardCol);
+	if (key.isKeyCode(KeyPress::leftKey)) return nav(Target::character, Direction::backwardCol);
+	if (key.isKeyCode(KeyPress::downKey)) return nav(Target::character, Direction::forwardRow);
     if (key.isKeyCode (KeyPress::upKey   )) return nav (Target::character, Direction::backwardRow);
 
 	if (key.isKeyCode(KeyPress::backspaceKey)) return remove(Target::character, Direction::backwardCol);
@@ -1496,7 +2407,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 	if (key.isKeyCode(KeyPress::endKey))  return nav(Target::line, Direction::forwardCol);
 
     if (key == KeyPress ('a', ModifierKeys::commandModifier, 0)) return expand (Target::document);
-    if (key == KeyPress ('d', ModifierKeys::commandModifier, 0)) return expand (Target::whitespace);
+	if (key == KeyPress('d', ModifierKeys::commandModifier, 0))  return addNextTokenToSelection();
     if (key == KeyPress ('e', ModifierKeys::commandModifier, 0)) return expand (Target::token);
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
     if (key == KeyPress ('f', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
@@ -1505,8 +2416,32 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     if (key == KeyPress ('x', ModifierKeys::commandModifier, 0))
     {
-        SystemClipboard::copyTextToClipboard (document.getSelectionContent (document.getSelections().getFirst()));
-        return insert ("");
+		auto s = document.getSelections().getFirst();
+
+		bool move = false;
+
+		if (s.isSingular())
+		{
+			document.navigate(s.head, Target::line, Direction::backwardCol);
+			document.navigate(s.head, Target::character, Direction::backwardCol);
+			document.navigate(s.tail, Target::line, Direction::forwardCol);
+			document.setSelection(0, s);
+			move = true;
+		}
+		
+		SystemClipboard::copyTextToClipboard(document.getSelectionContent(s));
+
+		insert("");
+
+		if (move)
+		{
+			nav(Target::character, Direction::forwardRow);
+			nav(Target::firstnonwhitespace, Direction::backwardCol);
+			
+			
+		}
+
+		return true;
     }
     if (key == KeyPress ('c', ModifierKeys::commandModifier, 0))
     {
@@ -1516,7 +2451,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
     if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))   return insert (SystemClipboard::getTextFromClipboard());
     if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))      return insert (String::charToString (KeyPress::deleteKey));
-    if (key.isKeyCode (KeyPress::returnKey))                       return insert ("\n");
+    if (key.isKeyCode (KeyPress::returnKey))                       return insertTabAfterBracket();
+
+	if(ActionHelpers::isLeftClosure(key.getTextCharacter()))   return insertClosure(key.getTextCharacter());
+	if (ActionHelpers::isRightClosure(key.getTextCharacter())) return skipIfClosure(key.getTextCharacter());
+
+
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
     return false;
@@ -1553,18 +2493,20 @@ bool mcl::TextEditor::insert (const juce::String& content)
         };
         undo.perform (t.on (document, callback));
     }
+	
+	translateToEnsureCaretIsVisible();
     updateSelections();
     return true;
 }
 
 MouseCursor mcl::TextEditor::getMouseCursor()
 {
-    return getMouseXYRelative().x < GUTTER_WIDTH ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
+    return getMouseXYRelative().x < gutter.getGutterWidth() ? MouseCursor::NormalCursor : MouseCursor::IBeamCursor;
 }
 
 
 
-
+#if REMOVE
 //==============================================================================
 void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
 {
@@ -1576,7 +2518,7 @@ void mcl::TextEditor::renderTextUsingAttributedStringSingle (juce::Graphics& g)
     auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
     auto T = document.getVerticalPosition (rows.getStart(), TextDocument::Metric::ascent);
     auto B = document.getVerticalPosition (rows.getEnd(),   TextDocument::Metric::top);
-    auto W = 10000;
+    auto W = 1000;
     auto bounds = Rectangle<float>::leftTopRightBottom (TEXT_INDENT, T, W, B);
     auto content = document.getSelectionContent (Selection (rows.getStart(), 0, rows.getEnd(), 0));
 
@@ -1676,6 +2618,7 @@ void mcl::TextEditor::renderTextUsingAttributedString (juce::Graphics& g)
         }
     }
 }
+#endif
 
 void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 {
@@ -1684,10 +2627,13 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 
     if (enableSyntaxHighlighting)
     {
-        auto colourScheme = CPlusPlusCodeTokeniser().getDefaultColourScheme();
         auto rows = document.getRangeOfRowsIntersecting (g.getClipBounds().toFloat());
+
+
+		rows.setStart(jmax(0, rows.getStart() - 20));
+
         auto index = Point<int> (rows.getStart(), 0);
-        document.navigate (index, TextDocument::Target::token, TextDocument::Direction::backwardRow);
+        
 
         auto it = TextDocument::Iterator (document, index);
         auto previous = it.getIndex();
@@ -1725,3 +2671,112 @@ void mcl::TextEditor::resetProfilingData()
     numPaintCalls = 0;
 }
 
+void LinebreakDisplay::paint(Graphics& g)
+{
+	float yPos = 0.0f;
+
+	Path p;
+	p.loadPathFromData(Icons::lineBreak, sizeof(Icons::lineBreak));
+	
+	for (int i = 0; i < document.getNumRows(); i++)
+	{
+		yPos = document.getVerticalPosition(i, mcl::TextDocument::Metric::top);
+		int numLines = document.getNumLinesForRow(i) - 1;
+
+		g.setColour(Colours::grey);
+
+		for (int i = 0; i < numLines; i++)
+		{
+			Rectangle<float> d(0.0f, yPos, (float)getWidth(), (float)getWidth());
+
+			d.reduce(3.0f, 3.0f);
+
+			d = d.transformed(transform).withX(0.0f);
+
+			p.scaleToFit(d.getX(), d.getY(), d.getWidth(), d.getHeight(), true);
+			g.fillPath(p);
+			
+			yPos += document.getFontHeight();
+		}
+	}
+}
+
+void mcl::CodeMap::mouseEnter(const MouseEvent& e)
+{
+	auto yNormalised = e.position.getY() / (float)getHeight();
+	auto lineNumber = surrounding.getStart() + yNormalised * surrounding.getLength();
+	auto editor = findParentComponentOfClass<TextEditor>();
+
+	editor->addChildComponent(preview = new HoverPreview(doc, lineNumber));
+
+	preview->colourScheme = editor->colourScheme;
+	preview->scale = editor->transform.getScaleFactor();
+	preview->repaint();
+	
+	Desktop::getInstance().getAnimator().fadeIn(preview, 200);
+
+	preview->setBounds(getPreviewBounds(e));
+}
+
+void mcl::CodeMap::mouseExit(const MouseEvent& e)
+{
+	Desktop::getInstance().getAnimator().fadeOut(preview, 200);
+	auto editor = findParentComponentOfClass<TextEditor>();
+	editor->removeChildComponent(preview);
+
+	
+
+	preview = nullptr;
+	
+	
+
+}
+
+void mcl::CodeMap::mouseMove(const MouseEvent& e)
+{
+	auto yNormalised = e.position.getY() / (float)getHeight();
+
+	auto lineNumber = surrounding.getStart() + yNormalised * surrounding.getLength();
+
+	if (preview != nullptr)
+	{
+		preview->setCenterRow(lineNumber);
+		preview->setBounds(getPreviewBounds(e));
+	}
+
+	repaint();
+}
+
+void mcl::CodeMap::mouseDown(const MouseEvent& e)
+{
+
+}
+
+juce::Rectangle<int> mcl::CodeMap::getPreviewBounds(const MouseEvent& e)
+{
+	auto editor = findParentComponentOfClass<TextEditor>();
+
+	
+
+	auto b = editor->getBounds();
+	b.removeFromRight(getWidth());
+
+	auto slice = b.removeFromRight(editor->getWidth() / 3).toFloat();
+
+	auto yNormalised = e.position.getY() / (float)getHeight();
+
+	auto ratio = (float)editor->getWidth() / (float)editor->getHeight();
+
+	auto height = slice.getWidth() / ratio;
+
+	auto diff = slice.getHeight() - height;
+
+	auto a = yNormalised;
+	auto invA = 1.0f - yNormalised;
+
+	slice.removeFromTop(a * diff);
+	slice.removeFromBottom(invA * diff);
+
+	return slice.toNearestInt();
+
+}
