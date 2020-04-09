@@ -1202,7 +1202,7 @@ Point<int> mcl::TextDocument::findIndexNearestPosition (Point<float> position) c
 
 	for (int l = 0; l < getNumRows(); l++)
 	{
-		auto& line = lines.lines[l];
+		auto line = lines.lines[l];
 
 		Range<float> p(yPos-gap/2.0f, yPos + line->height + gap/2.0f);
 
@@ -1664,8 +1664,8 @@ mcl::TextEditor::TextEditor(CodeDocument& codeDoc)
 	docRef.addListener(this);
 
 	
-	setFont(Font("Consolas", 16.0f, Font::plain));
-    //setFont (Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain));
+	
+    setFont (Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain));
 
     translateView (gutter.getGutterWidth(), 0);
     setWantsKeyboardFocus (true);
@@ -2075,11 +2075,10 @@ void mcl::TextEditor::mouseWheelMove (const MouseEvent& e, const MouseWheelDetai
 	translateView(dx * 80, d.deltaY * 160);
 
 #else
-    float dx = d.deltaX;
     /*
      make scrolling away from the gutter just a little "sticky"
      */
-    if (translation.x == GUTTER_WIDTH && -0.01f < dx && dx < 0.f)
+    if (translation.x == gutter.getGutterWidth() && -0.01f < dx && dx < 0.f)
     {
         dx = 0.f;
     }

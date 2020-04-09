@@ -1138,7 +1138,10 @@ public:
 					if (!CharacterFunctions::isWhitespace(pos.getCharacter()))
 					{
 						r.upper = CharacterFunctions::isUpperCase(pos.getCharacter());
-						r.c = colour.withAlpha(jmin(1.0f, 0.4f + randomValue));
+                        
+                        auto alpha = jlimit(0.0f, 1.0f, 0.4f + randomValue);
+                        
+						r.c = colour.withAlpha(alpha);
 						
 					}
 					else
