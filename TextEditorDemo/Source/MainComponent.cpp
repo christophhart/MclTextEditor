@@ -31,7 +31,6 @@ MainComponent::MainComponent():
 	editor.setColour(CodeEditorComponent::ColourIds::defaultTextColourId, Colour(0xFFCCCCCC));
 	editor.setColour(CodeEditorComponent::ColourIds::lineNumberTextId, Colour(0xFFCCCCCC));
 	editor.setColour(CodeEditorComponent::ColourIds::lineNumberBackgroundId, Colour(0xff363636));
-	editor.setColour(CodeEditorComponent::ColourIds::highlightColourId, Colour(0x66AAAAAA));
 	editor.setColour(CaretComponent::ColourIds::caretColourId, Colour(0xFFDDDDDD));
 	editor.setColour(ScrollBar::ColourIds::thumbColourId, Colour(0x3dffffff));
 

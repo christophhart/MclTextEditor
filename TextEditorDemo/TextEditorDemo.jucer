@@ -28,7 +28,7 @@
         <MODULEPATH id="juce_gui_basics" path="../../HISE/JUCE/modules"/>
         <MODULEPATH id="juce_gui_extra" path="../../HISE/JUCE/modules"/>
         <MODULEPATH id="juce_opengl" path="../../HISE/JUCE/modules"/>
-        <MODULEPATH id="mcl_editor" path="../../MclTextEditor"/>
+        <MODULEPATH id="mcl_editor" path="../../mcl_editor"/>
       </MODULEPATHS>
     </VS2017>
     <XCODE_MAC targetFolder="Builds/MacOSX">
@@ -49,23 +49,23 @@
         <MODULEPATH id="juce_audio_formats" path="../../HISE/JUCE/modules"/>
         <MODULEPATH id="juce_audio_devices" path="../../HISE/JUCE/modules"/>
         <MODULEPATH id="juce_audio_basics" path="../../HISE/JUCE/modules"/>
-        <MODULEPATH id="mcl_editor" path="../../MclTextEditor"/>
+        <MODULEPATH id="mcl_editor" path="../../mcl_editor"/>
       </MODULEPATHS>
     </XCODE_MAC>
   </EXPORTFORMATS>
   <MODULES>
-    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_audio_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_devices" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_formats" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_audio_processors" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_core" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_cryptography" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
     <MODULE id="juce_data_structures" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
-    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
-    <MODULE id="juce_opengl" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
+    <MODULE id="juce_events" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_graphics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_basics" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_gui_extra" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
+    <MODULE id="juce_opengl" showAllCode="1" useLocalCopy="0" useGlobalPath="1"/>
     <MODULE id="mcl_editor" showAllCode="1" useLocalCopy="0" useGlobalPath="0"/>
   </MODULES>
   <LIVE_SETTINGS>

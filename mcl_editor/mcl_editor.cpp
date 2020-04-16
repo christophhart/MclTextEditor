@@ -11,6 +11,14 @@
 
 #include "mcl_editor.h"
  
-// I'd suggest to split up this big file to multiple files per class and include them here one by one 
-// They will be compiled as one compilation unit anyway, but it eases navigation
+#include "code_editor/Helpers.cpp"
+#include "code_editor/Selection.cpp"
+#include "code_editor/GlyphArrangementArray.cpp"
+#include "code_editor/TextDocument.cpp"
+#include "code_editor/DocTree.cpp"
+#include "code_editor/CodeMap.cpp"
+#include "code_editor/CaretComponent.cpp"
+#include "code_editor/HighlightComponent.cpp"
+#include "code_editor/Gutter.cpp"
+#include "code_editor/Autocomplete.cpp"
 #include "code_editor/TextEditor.cpp"

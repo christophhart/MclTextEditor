@@ -33,6 +33,7 @@ END_JUCE_MODULE_DECLARATION
 #include "AppConfig.h"
 
 #include <juce_gui_extra/juce_gui_extra.h>
+#include <juce_opengl/juce_opengl.h>
 
 
 
@@ -79,6 +80,16 @@ END_JUCE_MODULE_DECLARATION
 
 
 // I'd suggest to split up this big file to multiple files per class and include them here one by one
+#include "code_editor/Helpers.h"
+#include "code_editor/Selection.h"
+#include "code_editor/GlyphArrangementArray.h"
+#include "code_editor/TextDocument.h"
+#include "code_editor/DocTree.h"
+#include "code_editor/CodeMap.h"
+#include "code_editor/CaretComponent.h"
+#include "code_editor/HighlightComponent.h"
+#include "code_editor/Gutter.h"
+#include "code_editor/Autocomplete.h"
 #include "code_editor/TextEditor.hpp"
 
 
