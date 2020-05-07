@@ -353,7 +353,7 @@ Point<int> mcl::TextDocument::findIndexNearestPosition(Point<float> position) co
 				}
 			}
 
-			return { l, col };
+			return { l, col -1 };
 		}
 
 		yPos = p.getEnd();
@@ -479,6 +479,11 @@ void mcl::TextDocument::navigate(juce::Point<int>& i, Target target, Direction d
 	case Target::character: advance(i); break;
 	case Target::firstnonwhitespace:
 	{
+		if (i.y != 0 && get(i) == '\n' && direction == Direction::backwardCol)
+		{
+			prev(i);
+		}
+
 		jassert(direction == Direction::backwardCol);
 
 		bool skipTofirstNonWhiteCharacter = false;
@@ -497,6 +502,78 @@ void mcl::TextDocument::navigate(juce::Point<int>& i, Target target, Direction d
 	case Target::subword: while (CF::isLetterOrDigit(get(i)) && advance(i)) {} break;
 	case Target::subwordWithPoint: while ((CF::isLetterOrDigit(get(i)) || get(i) == '.') && advance(i)) {} break;
 	case Target::word: while (CF::isWhitespace(get(i)) && advance(i)) {} break;
+	case Target::cppToken:
+	{
+		String breakChar = "+-*/%=?\t;\n}{";
+
+		enum RangeCharType
+		{
+			Paren,
+			Brace,
+			Bracket
+		};
+
+		bool ok = true;
+
+		while (ok)
+		{
+			auto c = get(i);
+
+			auto skipBetween = [&](juce_wchar o, juce_wchar c)
+			{
+				while (advance(i))
+				{
+					auto c = get(i);
+					if (c == '\n' || c == ';' || c == o)
+						break;
+				}
+			};
+
+			switch (c)
+			{
+			case ')':
+			{
+				skipBetween('(', ')');
+				break;
+			}
+			case ']':
+			{
+				skipBetween('[', ']');
+				break;
+			}
+			case '>':
+			{
+				skipBetween('<', '>');
+				break;
+			}
+			case ':':
+			{
+				if (get(i.translated(0, -1)) != ':')
+					return;
+				else
+					advance(i);
+
+				break;
+			}
+			case '(':
+			case '?':
+			case ' ':
+			case '+':
+			case '-':
+			case ';':
+			case '\n':
+			case '\t':
+			case '=':
+			case ',':
+			case '}':
+			case '<':
+			case '{': return;
+			}
+
+			
+			ok = advance(i);
+		}
+	}
 	case Target::token:
 	{
 		int s = lines.getToken(i.x, i.y, -1);

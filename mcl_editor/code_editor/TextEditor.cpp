@@ -358,7 +358,7 @@ void mcl::TextEditor::paintOverChildren (Graphics& g)
 
 void mcl::TextEditor::mouseDown (const MouseEvent& e)
 {
-	closeAutocomplete(true, {});
+	closeAutocomplete(true, {}, {});
 
     if (e.getNumberOfClicks() > 1)
     {
@@ -450,8 +450,8 @@ void mcl::TextEditor::mouseDoubleClick (const MouseEvent& e)
 {
     if (e.getNumberOfClicks() == 2)
     {
-        document.navigateSelections (TextDocument::Target::whitespace, TextDocument::Direction::backwardCol, Selection::Part::head);
-        document.navigateSelections (TextDocument::Target::whitespace, TextDocument::Direction::forwardCol,  Selection::Part::tail);
+        document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::backwardCol, Selection::Part::head);
+        document.navigateSelections (TextDocument::Target::subword, TextDocument::Direction::forwardCol,  Selection::Part::tail);
         updateSelections();
     }
     else if (e.getNumberOfClicks() == 3)
@@ -499,6 +499,8 @@ void mcl::TextEditor::mouseMagnify (const MouseEvent& e, float scaleFactor)
 
 bool mcl::TextEditor::keyPressed (const KeyPress& key)
 {
+	tooltipManager.clearDisplay();
+
     // =======================================================================================
     using Target     = TextDocument::Target;
     using Direction  = TextDocument::Direction;
@@ -547,23 +549,78 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		return true;
 	};
 
-	auto insertClosure = [this](juce_wchar c)
+	auto insertIfNotOpen = [this](juce_wchar openChar, juce_wchar closeChar)
 	{
-		switch (c)
-		{
-		case '"': insert("\"\""); break;
-		case '(': insert("()"); break;
-		case '{': insert("{}"); break;
-		case '[': insert("[]"); break;
-		}
-
 		auto s = document.getSelection(0);
 
-		document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::both);
+		CodeDocument::Position pos(document.getCodeDocument(), s.tail.x, s.tail.y);
 
-		auto s2 = document.getSelection(0);
+		int numBefore = 0;
 
-		updateSelections();
+		auto sPos = pos;
+
+		while (sPos.getPosition() < document.getCodeDocument().getNumCharacters())
+		{
+			sPos = sPos.movedBy(1);
+
+			auto c = sPos.getCharacter();
+
+			if (c == openChar)
+				numBefore++;
+			else if (c == closeChar)
+				numBefore--;
+		}
+
+		auto ePos = pos;
+		int numAfter = 0;
+
+		while (ePos.getPosition() > 0)
+		{
+			ePos = ePos.movedBy(-1);
+
+			auto c = ePos.getCharacter();
+
+			if (c == openChar)
+				numAfter--;
+			else if (c == closeChar)
+				numAfter++;
+		}
+		
+
+		juce::String text;
+		text << openChar;
+
+		auto both = numBefore == numAfter;
+
+		if (both)
+			text << closeChar;
+
+		insert(text);
+
+		return both;
+	};
+
+	auto insertClosure = [this, insertIfNotOpen](juce_wchar c)
+	{
+		bool both = false;
+
+		switch (c)
+		{
+		case '"': both = insertIfNotOpen('"', '"'); break;
+		case '(': both = insertIfNotOpen('(', ')'); break;
+		case '{': both = insertIfNotOpen('{', '}'); break;
+		case '[': both = insertIfNotOpen('[', ']'); break;
+		}
+
+		if (both)
+		{
+			auto s = document.getSelection(0);
+			document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::both);
+			auto s2 = document.getSelection(0);
+			updateSelections();
+		}
+
+		
 
 		return true;
 	};
@@ -742,7 +799,17 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 		if (!doneSomething)
 		{
-			document.setSelections(document.getSelections().getLast());
+			if (document.getNumSelections() == 1)
+			{
+				updateAutocomplete(true);
+				return true;
+			}
+			else
+			{
+				document.setSelections(document.getSelections().getLast());
+			}
+
+			
 		}
 			
         updateSelections();
@@ -937,7 +1004,7 @@ MouseCursor mcl::TextEditor::getMouseCursor()
 
 void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 {
-	//g.fillAll(findColour(CodeEditorComponent::backgroundColourId));
+	g.fillAll(findColour(CodeEditorComponent::backgroundColourId));
 
     g.saveState();
     g.addTransform (transform);

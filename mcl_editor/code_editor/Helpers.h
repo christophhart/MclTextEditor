@@ -211,7 +211,7 @@ struct TooltipWithArea : public Component,
 		Display(const Data& d) :
 			data(d)
 		{
-			f = Font(Font::getDefaultMonospacedFontName(), 14.0f, Font::plain);
+			f = getBasicFont();
 
 			auto w = roundToInt(f.getStringWidthFloat(data.text) + 20.0f);
 			setSize(w, f.getHeight() + 10);
@@ -251,8 +251,13 @@ struct TooltipWithArea : public Component,
 
 		virtual Data getTooltip(Point<float> positionInThisComponent) = 0;
 
-		JUCE_DECLARE_WEAK_REFERENCEABLE(Client)
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Client);
 	};
+
+	static Font getBasicFont()
+	{
+		return Font(14.0f, Font::plain);
+	}
 
 	bool isBeingShown(const Identifier& id) const
 	{

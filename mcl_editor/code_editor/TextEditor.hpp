@@ -42,6 +42,8 @@ class TextEditor : public juce::Component,
 {
 public:
 
+	using TokenTooltipFunction = std::function<String(const String&, int)>;
+
     enum class RenderScheme {
         usingAttributedStringSingle,
         usingAttributedString,
@@ -79,7 +81,19 @@ public:
     bool keyPressed (const juce::KeyPress& key) override;
     juce::MouseCursor getMouseCursor() override;
 
-	
+	void focusGained(FocusChangeType t) override
+	{
+		caret.startTimer(50);
+	}
+
+	void focusLost(FocusChangeType t) override
+	{
+		caret.stopTimer();
+		caret.repaint();
+	}
+
+	Font getFont() const { return document.getFont(); }
+
 	void scrollBarMoved(ScrollBar* scrollBarThatHasMoved, double newRangeStart) override;
 
 	void codeDocumentTextDeleted(int startIndex, int endIndex) override
@@ -144,18 +158,44 @@ public:
 				return d;
 		}
 
+		if (tokenTooltipFunction)
+		{
+			auto start = document.findIndexNearestPosition(position.transformedBy(transform.inverted()));
+			auto end = start;
+
+			document.navigate(start, mcl::TextDocument::Target::subword, mcl::TextDocument::Direction::backwardCol);
+			document.navigate(end, mcl::TextDocument::Target::subword, mcl::TextDocument::Direction::forwardCol);
+
+			auto token = document.getSelectionContent({ start, end });
+
+			if (token.isNotEmpty())
+			{
+				TooltipWithArea::Data d;
+				d.id = Identifier(token);
+				d.text = tokenTooltipFunction(token, start.x);
+				d.relativePosition = position;
+
+				if (d.text.isEmpty())
+					return {};
+
+				return d;
+			}
+		}
+
 		return {};
 	}
 
-	void updateAutocomplete()
+	void updateAutocomplete(bool forceShow = false)
 	{
 		if (document.getSelections().size() != 1)
 		{
-			closeAutocomplete(true, {});
+			closeAutocomplete(true, {}, {});
 			return;
 		}
 
-		auto p = document.getSelections().getFirst().oriented().tail;
+		auto o = document.getSelections().getFirst().oriented().tail;
+
+		auto p = o;
 		auto s = p;
 
 		document.navigate(s, mcl::TextDocument::Target::subword, mcl::TextDocument::Direction::backwardCol);
@@ -164,13 +204,28 @@ public:
 		autocompleteSelection = { s.x, s.y, p.x, p.y };
 		auto input = document.getSelectionContent(autocompleteSelection);
 
-		if (input.isNotEmpty() && tokenCollection.hasEntries(input))
+		auto te = s;
+		auto ts = s;
+
+		document.navigate(ts, TextDocument::Target::cppToken, TextDocument::Direction::backwardCol);
+
+		Selection beforeToken = { ts.x, ts.y, te.x, te.y };
+
+		auto tokenBefore = document.getSelectionContent(beforeToken);
+
+		
+
+		auto lineNumber = o.x;
+		
+
+
+		if (forceShow || (input.isNotEmpty() && tokenCollection.hasEntries(input, tokenBefore, lineNumber) || tokenBefore.endsWith(".")))
 		{
 			if (currentAutoComplete != nullptr)
-				currentAutoComplete->setInput(input);
+				currentAutoComplete->setInput(input, tokenBefore, lineNumber);
 			else
 			{
-				addAndMakeVisible(currentAutoComplete = new Autocomplete(tokenCollection, input));
+				addAndMakeVisible(currentAutoComplete = new Autocomplete(tokenCollection, input, tokenBefore, lineNumber));
 				addKeyListener(currentAutoComplete);
 			}
 
@@ -194,7 +249,7 @@ public:
 			}
 		}
 		else
-			closeAutocomplete(false, {});
+			closeAutocomplete(false, {}, {});
 	}
 
 	void codeDocumentTextInserted(const String& newText, int insertIndex) override
@@ -202,11 +257,11 @@ public:
 		updateAfterTextChange();
 	}
 	
-	void closeAutocomplete(bool async, const String& textToInsert)
+	void closeAutocomplete(bool async, const String& textToInsert, Range<int> selectRange)
 	{
 		if (currentAutoComplete != nullptr)
 		{
-			auto f = [this, textToInsert]()
+			auto f = [this, textToInsert, selectRange]()
 			{
 				removeKeyListener(currentAutoComplete);
 
@@ -219,6 +274,23 @@ public:
 					ScopedValueSetter<bool> svs(skipTextUpdate, true);
 					document.setSelections({ autocompleteSelection });
 					insert(textToInsert);
+
+					if (!selectRange.isEmpty())
+					{
+						auto deltaEnd = textToInsert.length() - selectRange.getEnd();
+						auto deltaStart = textToInsert.length() - selectRange.getStart()-1;
+
+						auto s = document.getSelection(0).oriented();
+
+						s.tail.y -= deltaStart;
+						s.head.y -= deltaEnd;
+
+						document.setSelections({ s.oriented() });
+
+						updateSelections();
+						repaint();
+					}
+
 				}
 
 				autocompleteSelection = {};
@@ -266,6 +338,13 @@ public:
 
 	CodeEditorComponent::ColourScheme colourScheme;
 	juce::AffineTransform transform;
+
+	TokenCollection tokenCollection;
+
+	void setTokenTooltipFunction(const TokenTooltipFunction& f)
+	{
+		tokenTooltipFunction = f;
+	}
 
 private:
 
@@ -410,7 +489,8 @@ private:
     juce::UndoManager undo;
 	bool showClosures = false;
 	Selection currentClosure[2];
-	TokenCollection tokenCollection;
+	TokenTooltipFunction tokenTooltipFunction;
+	
 };
 
 

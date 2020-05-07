@@ -42,15 +42,27 @@ public:
 		{};
 
 		/** Override the method and check whether the currently written input matches the token. */
-		virtual bool matches(const String& input) const
+		virtual bool matches(const String& input, const String& previousToken, int lineNumber) const
 		{
-			return tokenContent.contains(input);
+			auto textMatches = matchesInput(input, tokenContent);
+			auto scopeMatches = tokenScope.isEmpty() || tokenScope.contains(lineNumber);
+			return textMatches && scopeMatches;
+		}
+
+		static bool matchesInput(const String& input, const String& code)
+		{
+			if (input.length() == 1)
+				return code.startsWith(input);
+			else
+				return code.contains(input);
 		}
 
 		bool operator==(const Token& other) const
 		{
 			return tokenContent == other.tokenContent;
 		}
+
+		virtual Range<int> getSelectionRangeAfterInsert() const { return {}; }
 
 		/** Override this method if you want to customize the code that is about to be inserted. */
 		virtual String getCodeToInsert(const String& input) const { return tokenContent; }
@@ -63,6 +75,9 @@ public:
 
 		/** The priority of the token. Tokens with higher priority will show up first in the token list. */
 		int priority = 0;
+
+		/** This can be used to limit the scope of a token. */
+		Range<int> tokenScope;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Token);
 	};
@@ -126,6 +141,11 @@ public:
 		}
 	}
 
+	void clearTokenProviders()
+	{
+		tokenProviders.clear();
+	}
+
 	/** Register a token provider to this instance. Be aware that you can't register a token provider to multiple instances,
 	    but this shouldn't be a problem. */
 	void addTokenProvider(Provider* ownedProvider)
@@ -149,11 +169,11 @@ public:
 		stopThread(1000);
 	}
 
-	bool hasEntries(const String& input) const
+	bool hasEntries(const String& input, const String& previousToken, int lineNumber) const
 	{
 		for (auto t : tokens)
 		{
-			if (t->matches(input))
+			if (t->matches(input, previousToken, lineNumber))
 				return true;
 		}
 
@@ -268,8 +288,6 @@ struct SimpleDocumentTokenProvider : public TokenCollection::Provider,
 				currentString << c;
 			else
 			{
-
-
 				if (currentString.length() > 2)
 				{
 					bool found = false;
@@ -287,7 +305,6 @@ struct SimpleDocumentTokenProvider : public TokenCollection::Provider,
 						tokens.add(new TokenCollection::Token(currentString));
 				}
 					
-
 				currentString = {};
 			}
 		}
@@ -301,13 +318,45 @@ struct Autocomplete : public Component,
 {
 	using Token = TokenCollection::Token;
 
+	struct HelpPopup : public Component
+	{
+		HelpPopup(Autocomplete* p):
+			ac(p)
+		{
+
+		}
+
+		void paint(Graphics& g) override
+		{
+			
+
+			if (auto i = ac->items[ac->viewIndex])
+			{
+				auto t = i->token->markdownDescription;
+			
+				if (t.isEmpty())
+					return;
+
+				g.fillAll(Colour(0xFF333333));
+				g.setColour(Colours::white.withAlpha(0.2f));
+				g.drawRect(getLocalBounds().toFloat(), 1.0f);
+
+				g.setFont(14.0f);
+
+				g.setColour(Colours::white.withAlpha(0.8f));
+				g.drawText(t, getLocalBounds().toFloat().reduced(10.0f), Justification::centredLeft);
+			}
+		}
+
+		Autocomplete* ac;
+	};
+
 	struct Item : public Component
 	{
 		Item(TokenCollection::TokenPtr t, const String& input_) :
 			token(t),
 			input(input_)
 		{
-			jassert(t->matches(input));
 			setRepaintsOnMouseActivity(true);
 		}
 
@@ -332,13 +381,13 @@ struct Autocomplete : public Component,
 		String input;
 	};
 
-	Autocomplete(TokenCollection& tokenCollection_, const String& input) :
+	Autocomplete(TokenCollection& tokenCollection_, const String& input, const String& previousToken, int lineNumber) :
 		tokenCollection(tokenCollection_),
 		scrollbar(true),
 		shadow(DropShadow(Colours::black.withAlpha(0.7f), 5, {}))
 	{
 		addAndMakeVisible(scrollbar);
-		setInput(input);
+		setInput(input, previousToken, lineNumber);
 
 		shadow.setOwner(this);
 		scrollbar.addListener(this);
@@ -347,6 +396,18 @@ struct Autocomplete : public Component,
 	juce::DropShadower shadow;
 
 	bool keyPressed(const KeyPress& key, Component*);
+
+	void cancel();
+
+	Range<int> getSelectionRange() const
+	{
+		if (isPositiveAndBelow(viewIndex, items.size()))
+		{
+			return items[viewIndex]->token->getSelectionRangeAfterInsert();
+		}
+
+		return {};
+	}
 
 	String getCurrentText() const
 	{
@@ -413,6 +474,40 @@ struct Autocomplete : public Component,
 
 		scrollbar.setCurrentRange({ (double)displayedRange.getStart(), (double)displayedRange.getEnd() });
 
+		if (allowPopup && helpPopup == nullptr && getParentComponent() != nullptr)
+		{
+			helpPopup = new HelpPopup(this);
+
+			getParentComponent()->addAndMakeVisible(helpPopup);
+
+			auto totalBounds = getParentComponent()->getBounds();
+			auto thisBounds = getBoundsInParent();
+
+			auto w = 400;
+			auto h = 40;
+			int x, y;
+
+			if ((totalBounds.getWidth() - thisBounds.getRight()) > w)
+			{
+				x = thisBounds.getRight();
+				y = thisBounds.getY();
+				h = jmax(h, thisBounds.getHeight());
+			}
+			else
+			{
+				x = thisBounds.getX();
+				y = thisBounds.getBottom();
+				w = jmax(w, thisBounds.getWidth());
+			}
+
+			helpPopup->setBounds(x, y, w, h);
+		}
+
+		if (helpPopup != nullptr)
+		{
+			helpPopup->repaint();
+		}
+
 		resized();
 		repaint();
 	}
@@ -422,7 +517,17 @@ struct Autocomplete : public Component,
 		return new Item(t, input);
 	}
 
-	void setInput(const String& input)
+	bool isSingleMatch() const
+	{
+		if (items.size() == 1)
+		{
+			return items.getFirst()->token->tokenContent == currentInput;
+		}
+
+		return false;
+	}
+
+	void setInput(const String& input, const String& previousToken, int lineNumber)
 	{
 		currentInput = input;
 
@@ -433,7 +538,7 @@ struct Autocomplete : public Component,
 
 		for (auto t : tokenCollection)
 		{
-			if (t->matches(input))
+			if (t->matches(input, previousToken, lineNumber))
 			{
 				if (t->tokenContent == currentlyDisplayedItem)
 					viewIndex = items.size();
@@ -466,9 +571,26 @@ struct Autocomplete : public Component,
 
 		auto h = getNumDisplayedRows() * getRowHeight();
 
-		setSize(400, h);
-		resized();
-		repaint();
+		if (isSingleMatch())
+		{
+			cancel();
+		}
+		else
+		{
+			auto maxWidth = 0;
+
+			auto nf = Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain);
+
+			for (auto& i : items)
+			{
+
+				maxWidth = jmax(maxWidth, nf.getStringWidth(i->token->tokenContent) + 20);
+			}
+
+			setSize(maxWidth, h);
+			resized();
+			repaint();
+		}
 	}
 
 	int getRowHeight() const
@@ -530,6 +652,9 @@ struct Autocomplete : public Component,
 
 	TokenCollection& tokenCollection;
 	ScrollBar scrollbar;
+	bool allowPopup = false;
+
+	ScopedPointer<HelpPopup> helpPopup;
 };
 
 

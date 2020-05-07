@@ -17,7 +17,7 @@ using namespace juce;
 void Autocomplete::Item::mouseUp(const MouseEvent& e)
 {
 	auto editor = findParentComponentOfClass<TextEditor>();
-	editor->closeAutocomplete(true, token->getCodeToInsert(input));
+	editor->closeAutocomplete(true, token->getCodeToInsert(input), token->getSelectionRangeAfterInsert());
 }
 
 juce::AttributedString Autocomplete::Item::createDisplayText() const
@@ -83,17 +83,19 @@ void Autocomplete::Item::paint(Graphics& g)
 	s.draw(g, tBounds);
 }
 
+
+
 bool Autocomplete::keyPressed(const KeyPress& key, Component*)
 {
 	if (key == KeyPress::tabKey || key == KeyPress::returnKey)
 	{
-		findParentComponentOfClass<TextEditor>()->closeAutocomplete(true, getCurrentText());
+		findParentComponentOfClass<TextEditor>()->closeAutocomplete(true, getCurrentText(), getSelectionRange());
 		return true;
 	}
 
 	if (key == KeyPress::escapeKey || key == KeyPress::leftKey || key == KeyPress::rightKey)
 	{
-		findParentComponentOfClass<TextEditor>()->closeAutocomplete(true, {});
+		findParentComponentOfClass<TextEditor>()->closeAutocomplete(true, {}, {});
 		return key == KeyPress::escapeKey;
 	}
 
@@ -104,11 +106,31 @@ bool Autocomplete::keyPressed(const KeyPress& key, Component*)
 
 	if (key == KeyPress::upKey || key == KeyPress::downKey)
 	{
+		allowPopup = true;
 		selectNextItem(key == KeyPress::downKey);
 		return true;
 	}
 
 	return false;
+}
+
+void Autocomplete::cancel()
+{
+	setSize(0, 0);
+	Component::SafePointer<Autocomplete> safeThis(this);
+
+	auto f = [safeThis]()
+	{
+		if (safeThis.getComponent() != nullptr)
+		{
+			if (auto p = safeThis.getComponent()->findParentComponentOfClass<TextEditor>())
+			{
+				p->closeAutocomplete(false, {}, {});
+			}
+		}
+	};
+
+	MessageManager::callAsync(f);
 }
 
 }
