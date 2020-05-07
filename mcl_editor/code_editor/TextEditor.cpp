@@ -28,6 +28,7 @@ mcl::TextEditor::TextEditor(CodeDocument& codeDoc)
 , scrollBar(true)
 , tokenCollection()
 , treeview(document)
+, foldMap(document)
 , tooltipManager(*this)
 {
 	tokenCollection.addTokenProvider(new SimpleDocumentTokenProvider(codeDoc));
@@ -45,11 +46,12 @@ mcl::TextEditor::TextEditor(CodeDocument& codeDoc)
 	scrollBar.addListener(this);
     setFont (Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain));
 
-    translateView (gutter.getGutterWidth(), 0);
+    translateView (gutter.getGutterWidth(), 0); 
     setWantsKeyboardFocus (true);
 
 	addAndMakeVisible(linebreakDisplay);
     addAndMakeVisible (highlight);
+	addAndMakeVisible(foldMap);
     addAndMakeVisible (caret);
     addAndMakeVisible (gutter);
 	addAndMakeVisible(map);
@@ -270,6 +272,8 @@ void mcl::TextEditor::resized()
 
 	if(map.isVisible())
 		map.setBounds(b.removeFromRight(150));
+
+	foldMap.setBounds(b.removeFromRight(250));
 
 	if(treeview.isVisible())
 		treeview.setBounds(b.removeFromRight(250));

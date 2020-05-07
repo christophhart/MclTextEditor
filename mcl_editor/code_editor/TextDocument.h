@@ -18,8 +18,309 @@ using namespace juce;
 
 
 
+class FoldableLineRange : public ReferenceCountedObject
+{
+public:
+
+	using LineRangeFunction = std::function<Array<Range<int>>()>;
+
+	FoldableLineRange(Range<int> r, bool folded_) :
+		lineRange(r),
+		folded(folded_)
+	{};
+
+
+	using Ptr = ReferenceCountedObjectPtr<FoldableLineRange>;
+	using List = ReferenceCountedArray<FoldableLineRange>;
+	using WeakPtr = WeakReference<FoldableLineRange>;
+
+	class Listener
+	{
+	public:
+
+		virtual void foldStateChanged(WeakPtr rangeThatHasChanged) = 0;
+		virtual void rootWasRebuilt(WeakPtr newRoot) {};
+
+	private:
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
+	};
+
+	class Holder
+	{
+	public:
+
+		Holder(CodeDocument& d) :
+			doc(d)
+		{};
+
+		enum LineType
+		{
+			Nothing,
+			RangeStartOpen,
+			RangeStartClosed,
+			Between,
+			Folded,
+			RangeEnd
+		};
+
+		void toggleFoldState(int lineNumber)
+		{
+			if (auto r = getRangeWithStartAtLine(lineNumber))
+			{
+				auto type = getLineType(lineNumber);
+				r->folded = !r->folded;
+
+				updateFoldState(r);
+			}
+
+		}
+
+		void updateFoldState(WeakPtr r)
+		{
+			lineStates.clear();
+			foldedPositions.clear();
+
+			for (auto a : all)
+			{
+				if (a->isFolded())
+				{
+					CodeDocument::Position p(doc, a->lineRange.getStart(), 0);
+					foldedPositions.add(p);
+					foldedPositions.getReference(foldedPositions.size() - 1).setPositionMaintained(true);
+					lineStates.setRange(a->lineRange.getStart() + 1, a->lineRange.getLength() - 1, true);
+				}
+			}
+
+			for (auto l : listeners)
+			{
+				if (l.get() != nullptr)
+				{
+					l->foldStateChanged(r);
+				}
+			}
+		}
+
+		WeakPtr getRangeWithStartAtLine(int lineNumber) const
+		{
+			for (auto r : all)
+			{
+				if (r->lineRange.getStart() == lineNumber)
+					return r;
+			}
+
+			return nullptr;
+		}
+
+		WeakPtr getRangeContainingLine(int lineNumber) const
+		{
+			for (auto r : all)
+			{
+				if (r->lineRange.contains(lineNumber))
+					return r;
+			}
+
+			return nullptr;
+		}
+
+		Range<int> getRangeForLineNumber(int lineNumber) const
+		{
+			if (auto p = getRangeContainingLine(lineNumber))
+			{
+				if (p->folded)
+					return { lineNumber, lineNumber + 1 };
+				else
+					return p->lineRange;
+			}
+
+			return {};
+		}
+
+		LineType getLineType(int lineNumber) const
+		{
+			bool isBetween = false;
+			bool isEnd = false;
+			bool isStart = false;
+
+			for (auto l : all)
+			{
+				isBetween |= l->lineRange.contains(lineNumber);
+
+				
+
+				if (l->lineRange.getStart() == lineNumber)
+					return l->isFolded() ? RangeStartClosed : RangeStartOpen;
+
+				if (l->lineRange.contains(lineNumber) && l->isFolded())
+					return Folded;
+
+				if (l->lineRange.getEnd()-1 == lineNumber)
+					return RangeEnd;
+			}
+
+			if (isBetween)
+				return Between;
+			else
+				return Nothing;
+		}
+
+		bool isFolded(int lineNumber) const
+		{
+			return lineStates[lineNumber];
+		}
+
+		void setRanges(Array<Range<int>> ranges)
+		{
+			Array<int> foldedLines;
+
+			for (auto& r : foldedPositions)
+			{
+				foldedLines.add(r.getLineNumber());
+			}
+
+			List l;
+
+			for (auto r : ranges)
+			{
+				l.add(new FoldableLineRange(r, foldedLines.contains(r.getStart())));
+			}
+				
+
+			struct PositionSorter
+			{
+				static int compareElements(FoldableLineRange* first, FoldableLineRange* second)
+				{
+					auto start1 = first->lineRange.getStart();
+					auto start2 = second->lineRange.getStart();
+
+					if (start1 < start2)
+						return -1;
+					if (start1 > start2)
+						return 1;
+
+					return 0;
+				}
+			};
+
+			PositionSorter s;
+			l.sort(s);
+
+			for (int i = 1; i < l.size(); i++)
+			{
+				Ptr iParent = nullptr;
+
+				for (int j = 0; j < i; j++)
+				{
+					if (l[j]->contains(l[i]))
+						iParent = l[j];
+				}
+
+				if (iParent != nullptr)
+				{
+					iParent->children.add(l[i]);
+					l[i]->parent = iParent;
+				}
+					
+			}
+
+			roots.clear();
+
+			for (auto r : l)
+			{
+				if (r->getParent() == nullptr)
+					roots.add(r);
+			}
+
+			std::swap(all, l);
+
+			for (auto l : listeners)
+			{
+				if (l.get() != nullptr)
+					l->rootWasRebuilt(nullptr);
+			}
+
+			updateFoldState(nullptr);
+		}
+
+		CodeDocument& doc;
+		Array<CodeDocument::Position> foldedPositions;
+
+		BigInteger lineStates;
+		Array<WeakReference<Listener>> listeners;
+
+		List all;
+		List roots;
+	};
+
+
+	bool contains(Ptr other) const
+	{
+		return lineRange.contains(other->lineRange);
+	}
+
+	WeakPtr getParent() const { return parent; }
+
+	Range<int> lineRange;
+	
+	bool isFolded() const
+	{
+		if (folded)
+			return true;
+
+		WeakPtr p = parent;
+
+		while (p != nullptr)
+		{
+			if (p->folded)
+				return true;
+
+			p = p->parent;
+		}
+
+		return false;
+	}
+
+
+	bool forEach(const std::function<bool(WeakPtr)>& f)
+	{
+		if (f(this))
+			return true;
+
+		for (auto c : children)
+		{
+			if (c->forEach(f))
+				return true;
+		}
+
+		return false;
+	}
+
+	void setFolded(bool shouldBeFolded)
+	{
+		folded = shouldBeFolded;
+	}
+
+
+	
+
+	List children;
+	WeakPtr parent;
+
+private:
+
+	bool folded = false;
+
+	
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(FoldableLineRange);
+};
+
+
+
+
 //==============================================================================
-class mcl::TextDocument : public CoallescatedCodeDocumentListener
+class mcl::TextDocument : public CoallescatedCodeDocumentListener,
+						  public FoldableLineRange::Listener
 {
 public:
 	enum class Metric
@@ -42,6 +343,7 @@ public:
 		punctuation,
 		character,
 		subword,
+		cppToken,
 		subwordWithPoint,
 		word,
 		firstnonwhitespace,
@@ -120,7 +422,15 @@ public:
 	/** Get the number of rows in the document. */
 	int getNumRows() const;
 
+	void foldStateChanged(FoldableLineRange::WeakPtr rangeThatHasChanged)
+	{
+		rebuildRowPositions();
+	}
 
+	void rootWasRebuilt(FoldableLineRange::WeakPtr newRoot)
+	{
+
+	}
 
 	/** Get the number of columns in the given row. */
 	int getNumColumns(int row) const;
@@ -293,7 +603,9 @@ public:
 			auto l = lines.lines[i];
 
 			lines.ensureValid(i);
-			yPos += l->height + gap;
+
+			if(!foldManager.isFolded(i))
+				yPos += l->height + gap;
 		}
 	}
 
@@ -343,9 +655,29 @@ public:
 		duplicateOriginal = s;
 	}
 
+	FoldableLineRange::Holder& getFoldableLineRangeHolder()
+	{
+		return foldManager;
+	}
 
+	const FoldableLineRange::Holder& getFoldableLineRangeHolder() const
+	{
+		return foldManager;
+	}
+
+	void addFoldListener(FoldableLineRange::Listener* l)
+	{
+		foldManager.listeners.addIfNotAlreadyThere(l);
+	}
+
+	void removeFoldListener(FoldableLineRange::Listener* l)
+	{
+		foldManager.listeners.removeAllInstancesOf(l);
+	}
 
 private:
+
+	FoldableLineRange::Holder foldManager;
 
 	Array<float> rowPositions;
 

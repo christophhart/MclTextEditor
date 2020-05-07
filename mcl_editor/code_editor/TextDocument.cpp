@@ -256,8 +256,10 @@ GlyphArrangement mcl::TextDocument::findGlyphsIntersecting(Rectangle<float> area
 
 	for (int n = range.getStart(); n < range.getEnd(); ++n)
 	{
-		glyphs.addGlyphArrangement(getGlyphsForRow(n, token));
+		if(!foldManager.isFolded(n))
+			glyphs.addGlyphArrangement(getGlyphsForRow(n, token));
 	}
+
 	return glyphs;
 }
 
@@ -332,6 +334,9 @@ Point<int> mcl::TextDocument::findIndexNearestPosition(Point<float> position) co
 	for (int l = 0; l < getNumRows(); l++)
 	{
 		auto line = lines.lines[l];
+
+		if (foldManager.isFolded(l))
+			continue;
 
 		Range<float> p(yPos - gap / 2.0f, yPos + line->height + gap / 2.0f);
 
@@ -454,11 +459,27 @@ void mcl::TextDocument::navigate(juce::Point<int>& i, Target target, Direction d
 	switch (direction)
 	{
 	case Direction::forwardRow:
-		advance = [this](Point<int>& i) { return nextRow(i); };
+		advance = [this](Point<int>& i) 
+		{ 
+			auto ok = nextRow(i); 
+
+			while (foldManager.isFolded(i.x))
+				ok = nextRow(i);
+
+			return ok;
+		};
 		get = [this](Point<int> i) { return getCharacter(i); };
 		break;
 	case Direction::backwardRow:
-		advance = [this](Point<int>& i) { return prevRow(i); };
+		advance = [this](Point<int>& i) 
+		{ 
+			auto ok = prevRow(i);
+
+			while (foldManager.isFolded(i.x))
+				ok = prevRow(i);
+
+			return ok;
+		};
 		get = [this](Point<int> i) { prev(i); return getCharacter(i); };
 		break;
 	case Direction::forwardCol:
@@ -629,7 +650,7 @@ juce_wchar mcl::TextDocument::getCharacter(Point<int> index) const
 	if (index.x < 0 || index.y < 0)
 		return 0;
 
-	jassert(0 <= index.x && index.x <= lines.size());
+	//jassert(0 <= index.x && index.x <= lines.size());
 	
 
 	if (index == getEnd() || index.y >= lines[index.x].length())
@@ -739,7 +760,7 @@ juce::Array<juce::Line<float>> mcl::TextDocument::getUnderlines(const Selection&
 
 	for (int l = lineRange.getStart(); l < lineRange.getEnd(); l++)
 	{
-		if (isPositiveAndBelow(l, getNumRows()))
+		if (isPositiveAndBelow(l, getNumRows()) && !foldManager.isFolded(l))
 		{
 			int left = 0;
 			int right = getNumColumns(l);
@@ -779,9 +800,12 @@ juce::Array<juce::Line<float>> mcl::TextDocument::getUnderlines(const Selection&
 
 mcl::TextDocument::TextDocument(CodeDocument& doc_) :
 	CoallescatedCodeDocumentListener(doc_),
-	doc(doc_)
+	doc(doc_),
+	foldManager(doc_)
 {
 	doc.setDisableUndo(true);
+
+	addFoldListener(this);
 }
 
 

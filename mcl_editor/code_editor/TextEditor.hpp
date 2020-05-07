@@ -310,9 +310,26 @@ public:
 			auto b = document.getBounds();
 
 			scrollBar.setRangeLimits({ b.getY(), b.getBottom() });
-			
+		
+			if (lineRangeFunction)
+			{
+
+				auto ranges = lineRangeFunction();
+				
+				MessageManager::callAsync([this, ranges]()
+				{
+					document.getFoldableLineRangeHolder().setRanges(ranges);
+				});
+			}
+
 			updateSelections();
-			updateAutocomplete();
+
+			Timer::callAfterDelay(500, [this]()
+			{
+				this->updateAutocomplete();
+			});
+
+			
 			
 			updateViewTransform();
 
@@ -323,6 +340,11 @@ public:
 				w->rebuild();
 		}
 	}
+
+	void setLineRangeFunction(const FoldableLineRange::LineRangeFunction& f)
+	{
+		lineRangeFunction = f;
+	};
 
 	int getFirstLineOnScreen() const
 	{
@@ -474,10 +496,13 @@ private:
 
 	OwnedArray<Error> warnings;
 
+	FoldableLineRange::LineRangeFunction lineRangeFunction;
+
     CaretComponent caret;
     GutterComponent gutter;
     HighlightComponent highlight;
 	CodeMap map;
+	FoldMap foldMap;
 	LinebreakDisplay linebreakDisplay;
 	DocTreeView treeview;
 	ScrollBar scrollBar;

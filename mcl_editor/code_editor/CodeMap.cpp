@@ -196,6 +196,9 @@ void mcl::CodeMap::paint(Graphics& g)
 
 	for (auto& a : colouredRectangles)
 	{
+		if (doc.getFoldableLineRangeHolder().isFolded(a.lineNumber))
+			continue;
+
 		if (surrounding.contains(a.lineNumber))
 		{
 			if (offsetY == -1.0f)
@@ -507,6 +510,13 @@ void mcl::CodeMap::HoverPreview::setCenterRow(int newCenterRow)
 
 	rows.setStart(jmax(0, rows.getStart()));
 
+	repaint();
+}
+
+void FoldMap::Item::mouseDoubleClick(const MouseEvent& e)
+{
+	clicked = true;
+	findParentComponentOfClass<TextEditor>()->setFirstLineOnScreen(p->lineRange.getStart());
 	repaint();
 }
 

@@ -15,8 +15,9 @@ using namespace juce;
 
 
 //==========================================================================
-mcl::HighlightComponent::HighlightComponent(const TextDocument& document) : document(document)
+mcl::HighlightComponent::HighlightComponent(TextDocument& document) : document(document)
 {
+	document.addFoldListener(this);
 	setInterceptsMouseClicks(false, false);
 }
 
@@ -114,5 +115,9 @@ Path mcl::HighlightComponent::getOutlinePath(const Selection& s, Rectangle<float
 	return p.createPathWithRoundedCorners(1.0f);
 }
 
+mcl::HighlightComponent::~HighlightComponent()
+{
+	document.removeFoldListener(this);
+}
 
 }

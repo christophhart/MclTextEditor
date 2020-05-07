@@ -18,15 +18,22 @@ using namespace juce;
 
 
 //==============================================================================
-class mcl::HighlightComponent : public juce::Component
+class mcl::HighlightComponent : public juce::Component,
+								public FoldableLineRange::Listener
 {
 public:
-	HighlightComponent(const TextDocument& document);
+	HighlightComponent(TextDocument& document);
+	~HighlightComponent();
 	void setViewTransform(const juce::AffineTransform& transformToUse);
 	void updateSelections();
 
 	//==========================================================================
 	void paintHighlight(juce::Graphics& g);
+
+	void foldStateChanged(FoldableLineRange::WeakPtr p)
+	{
+		updateSelections();
+	}
 
 private:
 	juce::Path getOutlinePath(const Selection& rectangles, Rectangle<float> clip) const;
@@ -35,7 +42,7 @@ private:
 
 	//==========================================================================
 	bool useRoundedHighlight = true;
-	const TextDocument& document;
+	TextDocument& document;
 	juce::AffineTransform transform;
 	juce::Path outlinePath;
 };

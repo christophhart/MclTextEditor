@@ -48,6 +48,8 @@ void mcl::CaretComponent::paint(Graphics& g)
 
 	bool drawCaretLine = document.getNumSelections() == 1 && document.getSelections().getFirst().isSingular();
 
+	
+
 	for (const auto &r : getCaretRectangles())
 	{
 		g.setColour(colour.withAlpha(squareWave(phase)));
@@ -71,9 +73,17 @@ void mcl::CaretComponent::paint(Graphics& g)
 
 float mcl::CaretComponent::squareWave(float wt) const
 {
-	const float delta = 0.222f;
-	const float A = 1.0;
-	return 0.5f + A / 3.14159f * std::atanf(std::cosf(wt) / delta);
+	if (isTimerRunning())
+	{
+		const float delta = 0.222f;
+		const float A = 1.0;
+		return 0.5f + A / 3.14159f * std::atanf(std::cosf(wt) / delta);
+	}
+	
+	return 0.6f;
+
+	
+	
 }
 
 void mcl::CaretComponent::timerCallback()
@@ -90,11 +100,12 @@ Array<Rectangle<float>> mcl::CaretComponent::getCaretRectangles() const
 
 	for (const auto& selection : document.getSelections())
 	{
+		if (document.getFoldableLineRangeHolder().isFolded(selection.head.x))
+			continue;
+
 		auto b = document.getGlyphBounds(selection.head, GlyphArrangementArray::ReturnBeyondLastCharacter);
 
 		b = b.removeFromLeft(CURSOR_WIDTH).withSizeKeepingCentre(CURSOR_WIDTH, document.getRowHeight());
-
-
 
 		rectangles.add(b.translated(selection.head.y == 0 ? 0 : -0.5f * CURSOR_WIDTH, 0.f)
 			.transformedBy(transform)
