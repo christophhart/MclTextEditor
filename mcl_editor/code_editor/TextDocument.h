@@ -624,10 +624,13 @@ public:
 		lines.lines.clearQuick();
 		lines.lines.ensureStorageAllocated(doc.getNumLines());
 
+		jassertfalse;
+#if 0
 		for (int i = 0; i < doc.getNumLines(); i++)
 		{
 			lines.add(doc.getLineWithoutLinebreak(i));
 		}
+#endif
 
 		rebuildRowPositions();
 	}
@@ -675,7 +678,19 @@ public:
 		foldManager.listeners.removeAllInstancesOf(l);
 	}
 
+	void setSearchResults(const Array<Selection>& newSearchResults)
+	{
+		searchResults = newSearchResults;
+	}
+
+	Array<Selection> getSearchResults() const
+	{
+		return searchResults;
+	}
+
 private:
+
+	Array<Selection> searchResults;
 
 	FoldableLineRange::Holder foldManager;
 

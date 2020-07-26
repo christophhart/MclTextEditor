@@ -68,6 +68,23 @@ void mcl::HighlightComponent::paintHighlight(Graphics& g)
 
 	g.setColour(Colour(0xff959595));
 	g.strokePath(outlinePath, PathStrokeType(1.f));
+
+	for (auto sr : document.getSearchResults())
+	{
+		auto r = document.getSelectionRegion(sr);
+
+		for (auto h : r)
+		{
+			h.removeFromBottom(h.getHeight() * 0.15f);
+
+			h = h.translated(0.0f, h.getHeight() * 0.05f).expanded(2.0f);
+
+			g.setColour(Colours::white.withAlpha(0.2f));
+			g.fillRoundedRectangle(h, 2.0f);
+			g.setColour(Colours::red.withAlpha(0.4f));
+			g.drawRoundedRectangle(h, 2.0f, 1.0f);
+		}
+	}
 }
 
 Path mcl::HighlightComponent::getOutlinePath(const Selection& s, Rectangle<float> clip) const
@@ -118,6 +135,13 @@ Path mcl::HighlightComponent::getOutlinePath(const Selection& s, Rectangle<float
 mcl::HighlightComponent::~HighlightComponent()
 {
 	document.removeFoldListener(this);
+}
+
+void SearchBoxComponent::Blaf::drawButtonText(Graphics& g, TextButton& b, bool shouldDrawButtonAsHighlighted, bool shouldDrawButtonAsDown)
+{
+	g.setFont(Font("Oxygen", 13.0f, Font::bold));
+	g.setColour(Colours::black);
+	g.drawText(b.getButtonText(), b.getLocalBounds().toFloat(), Justification::centred);
 }
 
 }

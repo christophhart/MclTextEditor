@@ -38,7 +38,8 @@ namespace mcl
 class TextEditor : public juce::Component,
 				   public CodeDocument::Listener,
 				   public ScrollBar::Listener,
-				   public TooltipWithArea::Client
+				   public TooltipWithArea::Client,
+				   public SearchBoxComponent::Listener
 {
 public:
 
@@ -173,7 +174,12 @@ public:
 				TooltipWithArea::Data d;
 				d.id = Identifier(token);
 				d.text = tokenTooltipFunction(token, start.x);
-				d.relativePosition = position;
+
+				
+
+				auto b = document.getBoundsOnRow(start.x, { start.y, end.y }, GlyphArrangementArray::OutOfBoundsMode::ReturnLastCharacter).getRectangle(0);
+
+				d.relativePosition = b.getBottomLeft().transformedBy(transform);
 
 				if (d.text.isEmpty())
 					return {};
@@ -193,7 +199,7 @@ public:
 			return;
 		}
 
-		auto o = document.getSelections().getFirst().oriented().tail;
+		const auto o = document.getSelections().getFirst().oriented().tail;
 
 		auto p = o;
 		auto s = p;
@@ -213,12 +219,8 @@ public:
 
 		auto tokenBefore = document.getSelectionContent(beforeToken);
 
-		
-
 		auto lineNumber = o.x;
 		
-
-
 		if (forceShow || (input.isNotEmpty() && tokenCollection.hasEntries(input, tokenBefore, lineNumber) || tokenBefore.endsWith(".")))
 		{
 			if (currentAutoComplete != nullptr)
@@ -229,26 +231,25 @@ public:
 				addKeyListener(currentAutoComplete);
 			}
 
-			auto cBounds = document.getBoundsOnRow(s.x, { s.y, s.y + 1 }, GlyphArrangementArray::ReturnLastCharacter).getRectangle(0);
+			auto sToUse = input.isEmpty() ? o.translated(0, 1) : s;
+
+			auto cBounds = document.getBoundsOnRow(sToUse.x, { sToUse.y, sToUse.y + 1 }, GlyphArrangementArray::ReturnLastCharacter).getRectangle(0);
 			auto topLeft = cBounds.getBottomLeft();
 
 			currentAutoComplete->setTopLeftPosition(topLeft.roundToInt());
 
-			auto acBounds = currentAutoComplete->getBoundsInParent();
-			acBounds = acBounds.transformed(transform);
-			auto b = acBounds.getBottom();
-			auto h = getHeight();
-
-			if (b > h)
+			if (currentAutoComplete->getBoundsInParent().getBottom() > getHeight())
 			{
-				auto bottomLeft = cBounds.transformed(transform).getTopLeft().toInt();
-				auto topLeft = bottomLeft.translated(0, -currentAutoComplete->getHeight());
+				auto b = cBounds.getTopLeft().translated(0, -currentAutoComplete->getHeight());
 
-				currentAutoComplete->setTopLeftPosition(topLeft);
-				currentAutoComplete->setTransform(transform);
+				currentAutoComplete->setTopLeftPosition(b.roundToInt());
 			}
+				
+
+			currentAutoComplete->setTransform(transform);
+
 		}
-		else
+		else 
 			closeAutocomplete(false, {}, {});
 	}
 
@@ -350,6 +351,22 @@ public:
 	{
 		auto rows = document.getRangeOfRowsIntersecting(getLocalBounds().toFloat().transformed(transform.inverted()));
 		return rows.getStart();
+	}
+
+	void searchItemsChanged() override
+	{
+		auto selectedLine = document.getSelection(0).head.x;
+
+		Range<int> visibleLines = document.getRangeOfRowsIntersecting(getLocalBounds().toFloat().transformed(transform.inverted()));
+
+		if (!visibleLines.contains(selectedLine))
+		{
+			auto firstLineToShow = jmax(0, selectedLine - 4);
+			setFirstLineOnScreen(firstLineToShow);
+		}
+
+		updateSelections();
+		repaint();
 	}
 
 	void setFirstLineOnScreen(int firstRow)
@@ -510,12 +527,13 @@ private:
 	bool linebreakEnabled = true;
     float viewScaleFactor = 1.f;
 	int maxLinesToShow = 0;
+	bool lastInsertWasDouble = false;
     juce::Point<float> translation;
     juce::UndoManager undo;
 	bool showClosures = false;
 	Selection currentClosure[2];
 	TokenTooltipFunction tokenTooltipFunction;
-	
+	ScopedPointer<SearchBoxComponent> currentSearchBox;
 };
 
 
