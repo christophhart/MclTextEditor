@@ -353,7 +353,7 @@ Point<int> mcl::TextDocument::findIndexNearestPosition(Point<float> position) co
 
 				if (b.contains(position))
 				{
-					col = n;
+					col = n+1;
 					break;
 				}
 			}
@@ -520,8 +520,8 @@ void mcl::TextDocument::navigate(juce::Point<int>& i, Target target, Direction d
 
 		break;
 	}
-	case Target::subword: while (CF::isLetterOrDigit(get(i)) && advance(i)) {} break;
-	case Target::subwordWithPoint: while ((CF::isLetterOrDigit(get(i)) || get(i) == '.') && advance(i)) {} break;
+	case Target::subword: while ((CF::isLetterOrDigit(get(i)) || get(i) == '_') && advance(i)) {} break;
+	case Target::subwordWithPoint: while ((CF::isLetterOrDigit(get(i)) || get(i) == '_' || get(i) == '.') && advance(i)) {} break;
 	case Target::word: while (CF::isWhitespace(get(i)) && advance(i)) {} break;
 	case Target::cppToken:
 	{

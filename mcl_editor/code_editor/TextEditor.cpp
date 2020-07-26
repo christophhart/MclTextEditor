@@ -44,6 +44,7 @@ mcl::TextEditor::TextEditor(CodeDocument& codeDoc)
 	docRef.addListener(&document);
 	
 	scrollBar.addListener(this);
+	scrollBar.setColour(ScrollBar::ColourIds::thumbColourId, Colours::white.withAlpha(0.2f));
     setFont (Font(Font::getDefaultMonospacedFontName(), 16.0f, Font::plain));
 
     translateView (gutter.getGutterWidth(), 0); 
@@ -273,7 +274,7 @@ void mcl::TextEditor::resized()
 	if(map.isVisible())
 		map.setBounds(b.removeFromRight(150));
 
-	foldMap.setBounds(b.removeFromRight(250));
+	//foldMap.setBounds(b.removeFromRight(250));
 
 	if(treeview.isVisible())
 		treeview.setBounds(b.removeFromRight(250));
@@ -404,6 +405,17 @@ void mcl::TextEditor::mouseDown (const MouseEvent& e)
     auto selections = document.getSelections();
     auto index = document.findIndexNearestPosition (e.position.transformedBy (transform.inverted()));
 
+	if (e.mods.isShiftDown())
+	{
+		auto s = document.getSelection(0).head;
+
+		Selection ns(index, s);
+
+		document.setSelections({ ns });
+		updateSelections();
+		return;
+	}
+
     if (selections.contains (index))
     {
         return;
@@ -515,6 +527,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     // =======================================================================================
     auto nav = [this, mods] (Target target, Direction direction)
     {
+		lastInsertWasDouble = false;
+
 		if (mods.isShiftDown())
             document.navigateSelections (target, direction, Selection::Part::head);
         else
@@ -597,9 +611,16 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		auto both = numBefore == numAfter;
 
 		if (both)
+		{
 			text << closeChar;
+			
+		}
+			
 
 		insert(text);
+
+		if(both)
+			lastInsertWasDouble = true;
 
 		return both;
 	};
@@ -771,7 +792,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		auto l = document.getCharacter(s.head.translated(0, -1));
 		auto r = document.getCharacter(s.head);
 		
-		if (ActionHelpers::isMatchingClosure(l, r))
+		if (lastInsertWasDouble && ActionHelpers::isMatchingClosure(l, r))
 		{
 			document.navigateSelections(Target::character, Direction::backwardCol, Selection::Part::tail);
 			document.navigateSelections(Target::character, Direction::forwardCol, Selection::Part::head);
@@ -805,6 +826,12 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 		{
 			if (document.getNumSelections() == 1)
 			{
+				if (currentSearchBox != nullptr)
+				{
+					currentSearchBox = nullptr;
+					return true;
+				}
+
 				updateAutocomplete(true);
 				return true;
 			}
@@ -911,7 +938,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 	if (key == KeyPress('d', ModifierKeys::commandModifier, 0))  return addNextTokenToSelection();
     if (key == KeyPress ('e', ModifierKeys::commandModifier, 0)) return expand (Target::token);
     if (key == KeyPress ('l', ModifierKeys::commandModifier, 0)) return expand (Target::line);
-    if (key == KeyPress ('f', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
+    if (key == KeyPress ('u', ModifierKeys::commandModifier, 0)) return addSelectionAtNextMatch();
     if (key == KeyPress ('z', ModifierKeys::commandModifier, 0)) return undo.undo();
     if (key == KeyPress ('r', ModifierKeys::commandModifier, 0)) return undo.redo();
 
@@ -950,13 +977,84 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         return true;
     }
 
-    if (key == KeyPress ('v', ModifierKeys::commandModifier, 0))   return insert (SystemClipboard::getTextFromClipboard());
+	if (key == KeyPress('v', ModifierKeys::commandModifier, 0))
+	{
+		auto insertText = SystemClipboard::getTextFromClipboard();
+
+		auto sel = document.getSelection(0);
+		
+		Point<int> p = sel.head;
+		auto lineStart = p;
+		document.navigate(lineStart, TextDocument::Target::firstnonwhitespace, TextDocument::Direction::backwardCol);
+
+		auto prevws = document.getSelectionContent({ lineStart, p });
+
+		
+
+		if (!prevws.containsNonWhitespaceChars() && sel.isSingular())
+		{
+			auto sa = StringArray::fromLines(insertText);
+
+			auto getWhitespaceAtBeginning = [](const String& s)
+			{
+				for (int numWhitespace = 0; numWhitespace < s.length(); numWhitespace++)
+				{
+					auto c = s[numWhitespace];
+
+					if (!(c == ' ' || c == '\t'))
+					{
+						return s.substring(0, numWhitespace);
+					}
+				}
+
+				return s;
+			};
+
+			auto whitespaceToRemove = getWhitespaceAtBeginning(sa[0]);
+
+			if (whitespaceToRemove.isEmpty() && sa.size() > 1)
+				whitespaceToRemove = getWhitespaceAtBeginning(sa[1]);
+			
+			bool first = true;
+
+			for (auto& l : sa)
+			{
+				auto trimmed = whitespaceToRemove.isEmpty() ? l : l.fromFirstOccurrenceOf(whitespaceToRemove, false, false);
+
+				if (first)
+				{
+					l = l.trimCharactersAtStart(" \t");
+					first = false;
+				}
+				else
+				{
+					l = prevws + trimmed;
+				}
+			}
+
+
+			insertText = sa.joinIntoString("\n");
+		}
+		
+
+		return insert(insertText);
+	}
+	if (key == KeyPress('f', ModifierKeys::ctrlModifier, 0))
+	{
+		currentSearchBox = new SearchBoxComponent(document, transform.getScaleFactor());
+		addAndMakeVisible(currentSearchBox);
+		currentSearchBox->addListener(this);
+		currentSearchBox->setBounds(getLocalBounds().removeFromBottom(document.getRowHeight() * transform.getScaleFactor() * 1.2f + 5));
+
+		currentSearchBox->grabKeyboardFocus();
+
+		return true;
+	}
     if (key == KeyPress ('d', ModifierKeys::ctrlModifier, 0))      return insert (String::charToString (KeyPress::deleteKey));
     if (key.isKeyCode (KeyPress::returnKey))                       return insertTabAfterBracket();
 
 	if(ActionHelpers::isLeftClosure(key.getTextCharacter()))   return insertClosure(key.getTextCharacter());
 	if (ActionHelpers::isRightClosure(key.getTextCharacter())) return skipIfClosure(key.getTextCharacter());
-
 
     if (key.getTextCharacter() >= ' ' || isTab)                    return insert (String::charToString (key.getTextCharacter()));
 
@@ -997,6 +1095,9 @@ bool mcl::TextEditor::insert (const juce::String& content)
 	
 	translateToEnsureCaretIsVisible();
     updateSelections();
+
+	lastInsertWasDouble = false;
+
     return true;
 }
 
@@ -1012,8 +1113,6 @@ void mcl::TextEditor::renderTextUsingGlyphArrangement (juce::Graphics& g)
 
     g.saveState();
     g.addTransform (transform);
-
-	
 
 	highlight.paintHighlight(g);
 

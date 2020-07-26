@@ -208,7 +208,7 @@ public:
 				auto l = (int)charactersPerLine.size() - 1;
 				auto c = charactersPerLine[l];
 
-				auto isTab = string[jmax(0, col - 1)] == '\t';
+				auto isTab = !string.isEmpty() && string[jmax(0, string.length()-1, col - 1)] == '\t';
 
 				if (isTab)
 					return { l, roundToTab(c) };

@@ -115,7 +115,7 @@ public:
 
 		static EntryType getEntryType(String& s)
 		{
-			static const StringArray skipWords = { "for", "if", "while", "switch" };
+			static const StringArray skipWords = { "for", "if", "while", "switch", "/*" };
 
 			for (auto& w : skipWords)
 				if (s.startsWith(w))

@@ -88,17 +88,17 @@ void mcl::GutterComponent::paint(Graphics& g)
 	auto& h = document.getFoldableLineRangeHolder();
 
 
-
+	UnblurryGraphics ug(g, *this);
 
 	for (const auto& r : rowData)
 	{
 		bool isErrorLine = r.rowNumber == errorLine;
 
-		if (h.isFolded(r.rowNumber))
-			continue;
-
 		auto b = getRowBounds(r);
+
 		
+			
+
 		bool showFoldRange = false;
 
 		auto t = h.getLineType(r.rowNumber);
@@ -147,7 +147,7 @@ void mcl::GutterComponent::paint(Graphics& g)
 
 		g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withAlpha(0.5f));
 
-		UnblurryGraphics ug(g, *this);
+		
 
 		switch (t)
 		{
@@ -171,8 +171,14 @@ void mcl::GutterComponent::paint(Graphics& g)
 
 			g.drawHorizontalLine(box.getCentreY(), box.getX(), box.getRight());
 
-			if(t == FoldableLineRange::Holder::RangeStartClosed)
+			if (t == FoldableLineRange::Holder::RangeStartClosed)
+			{
+
+				ug.draw1PxHorizontalLine(b.getBottom(), 0.0f, b.getRight());
 				g.drawVerticalLine((int)box.getCentreX(), box.getY(), box.getBottom());
+
+			}
+				
 
 			break;
 		}
